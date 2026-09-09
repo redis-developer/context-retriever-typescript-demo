@@ -98,13 +98,18 @@
       // "how much on card payments last month" — has no aggregate behind it,
       // and the agent will say so rather than add rows up itself. Worth
       // demonstrating deliberately, but it is a refusal, not an answer.
+      // Ordered for a live demo, and the fourth and fifth belong together in
+      // that order. "How many" is exact and costs one record; "how much" has no
+      // aggregate behind it and is correctly declined. Asked in that order the
+      // pair shows an agent that knows its own contract. Asked the other way
+      // round, the refusal just looks like a missing feature.
       const EXAMPLES = [
         "How much have I spent in total, by currency?",
         "Show me my last 5 transactions",
         "Which of my payments failed, and why?",
         "How many card payments did I make last month?",
-        "Who are my most frequent counterparties?",
         "How much did I spend on card payments last month?",
+        "Who are my most frequent counterparties?",
       ];
 
       const session = await fetch("/api/session").then(r => r.json());

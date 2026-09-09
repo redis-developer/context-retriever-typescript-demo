@@ -52,6 +52,8 @@ npm run agent       # a web interface on http://localhost:3100
 npm run bench       # the committed question set, timed and costed (calls a live model)
 ```
 
+If you are showing this to somebody rather than reading it, [DEMO.md](DEMO.md) is the script: what to run, in what order, what to say at each step, and what not to promise.
+
 `probe` is the one to run if you have time for only one. Everything else here shows the system doing something; `probe` shows what it cannot do, and it calls no model, so the result is a property of the deployment rather than a sample of one model's behaviour on the day. It separates the reads no tool can express from the rules that live in a sentence of the system prompt, because both look identical in a transcript and only one of them survives a model upgrade. It exits non-zero if the surface turns out to expose a read it expected to be foreclosed.
 
 ## The data model
