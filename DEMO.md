@@ -94,7 +94,9 @@ Ask these in order. The fourth and fifth belong together and the order is not op
 
 **"How much did I spend on card payments last month?"** The agent declines, and explains that no aggregate can be narrowed to a date range.
 
-Stop here and make the point, because this is the moment the demo turns. The agent is not failing. It is refusing to do arithmetic it cannot do reliably, having established that no tool can answer the question exactly. The alternative is an agent that fetches the rows and adds them up itself, and when we tried that, the same model produced a different wrong total on all seven attempts, spread over about 1,800 dirhams on a four-number addition. In a bank, a confident wrong number is worse than a decline.
+Stop here, and do not oversell it. This version cannot express a filtered aggregate: the aggregate tools take no conditions and group by a single field. A SQL query answers the same question in one line, exactly, and if you are being compared against text-to-SQL then this is the one axis where the comparison goes against you today. Say that plainly. Filtered aggregation is a known gap with a roadmap answer, and pretending a refusal is a feature will lose the room faster than the gap does.
+
+What the agent is doing is still the right behaviour, and that is worth separating from the gap. It established that no tool answers the question exactly, and it declined rather than fetching the rows and totalling them itself. The alternative was not a better answer, it was a confident wrong one. But do not build the argument on that, because the thing you are being compared against does its arithmetic in the database and does it correctly.
 
 **"Who are my most frequent counterparties?"** One aggregate grouped by counterparty, then a bounded number of name lookups. Aggregates group by identifier, not by name, so this is the one question that needs a second step. It used to take eleven retrieval calls; instructing the agent to decide which few matter before looking any of them up took it to six.
 
@@ -124,6 +126,26 @@ It runs seven committed questions three times each, so allow about four minutes,
 
 **A turn takes twenty seconds.** Reasoning effort is set to `low` deliberately. Do not lower it to `none` to speed things up: the agent stops chaining tool calls and answers "I cannot narrow that" to questions it otherwise answers correctly.
 
+## If they compare it to text-to-SQL
+
+They will, and it is the right comparison to make. Do not argue the axes where SQL wins, and do not let the conversation stay on them either.
+
+**Concede these immediately.** A SQL query filters and aggregates in one statement, groups on as many dimensions as you like, joins, and does its arithmetic in the database, correctly. Filtered aggregation and multi-field grouping are not available in the version shown here. For genuinely analytical work — ad-hoc slicing, window functions, anything an analyst would write by hand — SQL is the better tool and saying otherwise costs you the room.
+
+**Then move to what is actually being traded.** This is not a better query generator. It is a bounded read surface instead of an unbounded one, and the difference is enumerability. Four arguments, in descending order of how much a bank cares.
+
+_Tenant isolation is declarative here and procedural there._ The scoping in step 2 comes from a field mapping on the entity and access tags on the key. Nothing in the tool contract can express another customer's rows, so there is no query to review and no prompt to talk past. To match that with SQL you need row-level security bound to a per-session identity, because a text-to-SQL agent on a service account is one predicate away from any row its role can see, and the only thing standing there is the model's judgement. Ask how their SQL agent authenticates to Oracle. If the answer is a service account, that is the whole argument.
+
+_You can enumerate every read this surface can perform, ahead of time._ That is literally what `npm run probe` does. You cannot enumerate the set of SQL strings a model might emit, which matters to a model-risk function that has to sign the thing off.
+
+_Blast radius is bounded by the contract, not by intent._ Pages cap at a hundred, there is no join syntax, and every argument is an enum or a typed scalar. A generated SQL string against a production `BANK_TRANSACTION` can be a full scan or a cartesian join, and a read-only role does not protect availability.
+
+_The lever is round trips, and a tool surface takes fewer._ Each model turn is about ten seconds. A SQL agent usually spends turns inspecting schema, then generating, then recovering when a column guess or a dialect detail is wrong. Here the schemas are discovered once and the arguments are constrained, so a wrong field name fails locally with the permitted set rather than costing a turn. Step 1 showed that; this is why it matters.
+
+One more, worth checking before you say it: LangChain's standard SQL toolkit includes sample rows in its schema-inspection output by default, which puts real data in the model's context before any `SELECT` is issued. If their implementation does that, it is both a token cost and an out-of-scope read that inspecting generated queries would never catch. Confirm it against the version they are actually running rather than asserting it.
+
+**Where to land.** The two are not the same shape of thing, and a bank will end up wanting both: a governed surface for the agent that talks to customers, and SQL for the analysts. Offer to follow up on filtered aggregation specifically, because it is the gap they will remember.
+
 ## What not to promise
 
 Say these before someone infers them.
@@ -134,4 +156,4 @@ Scoping is enforced by the access tags on the agent key, so this shows one tenan
 
 The dataset is 400 records on one local node. The latency figures say the request is cheap. They say nothing about how the service scales, and anyone extrapolating from them should be stopped.
 
-Filtered aggregates and multi-field grouping are not available in the version shown here. Both are known, and the refusal in step 4 is the honest consequence rather than a defect in this application.
+Filtered aggregates and multi-field grouping are not available in the version shown here, and this is the gap that matters most in a comparison against SQL. The refusal in step 4 is the honest consequence rather than a defect in this application, but it is a gap and not a design choice. See the section above before you get asked.
