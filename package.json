@@ -31,6 +31,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^4.0.60",
     "@redis-iris/context-retriever": "^0.1.1",
+    "@redis/json": "^6.2.1",
     "ai": "^7.0.93",
     "dotenv": "^17.4.2",
     "redis": "^6.2.1",

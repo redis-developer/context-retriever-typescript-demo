@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dataPlaneConfig, demoConfig } from "../config/env.ts";
 import { resolveDomain } from "../domain/index.ts";
 import { SurfaceSession } from "../data-plane/session.ts";
-import { formatMs, reportError } from "../lib/errors.ts";
+import { reportError } from "../lib/errors.ts";
 import { createAsk } from "./ask.ts";
 
 /**
@@ -97,7 +97,10 @@ server.on("error", (error: NodeJS.ErrnoException) => {
   throw error;
 });
 
-server.listen(demo.agentPort, () => {
+// Bound to loopback explicitly. Node would otherwise listen on every
+// interface while the banner below says "localhost", and this endpoint
+// authenticates nobody — a difference the reader should not have to discover.
+server.listen(demo.agentPort, "127.0.0.1", () => {
   console.log(`Agent ready on http://localhost:${String(demo.agentPort)}`);
   console.log(`  signed in as  ${demo.customerId} (${demo.customerName})`);
   console.log(`  model         ${demo.chatModel}`);
@@ -116,5 +119,3 @@ const shutdown = (): void => {
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
-
-export { formatMs };

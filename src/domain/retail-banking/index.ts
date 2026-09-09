@@ -12,7 +12,8 @@ export const retailBanking: DomainModel = {
     "Retail bank transactions and the counterparties they were paid to, modelled for an assistant answering a customer's questions about their own money.",
   entities,
   keyPrefix: KEY_PREFIX,
-  generate: seed => generate(seed),
+  generate: (seed, primarySubjectValue) =>
+    generate(seed, { ...DEFAULT_GENERATE_OPTIONS, primaryCustomerId: primarySubjectValue }),
   resultSchemas,
   subjectField: { entity: "transaction", field: "customer_id" },
   internalTools,

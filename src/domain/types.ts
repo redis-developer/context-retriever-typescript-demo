@@ -38,8 +38,6 @@ export interface CustomerProfile {
  */
 export interface InternalToolContext {
   readonly customer: CustomerProfile;
-  /** Record counts per entity, for `dataset_overview`. */
-  countRecords: () => Promise<Readonly<Record<string, number>>>;
 }
 
 /**
@@ -85,7 +83,15 @@ export interface DomainModel {
   readonly keyPrefix: string;
 
   /** Deterministic in `seed`: the same seed yields byte-identical records. */
-  readonly generate: (seed: number) => readonly EntityRecords[];
+  /**
+   * Deterministic records for a given seed.
+   *
+   * `primarySubjectValue` is the value of `subjectField` most records must
+   * carry, because it is what the agent key will be scoped to. Ignoring it
+   * seeds one customer and scopes the key to another, and the symptom is an
+   * empty result that looks exactly like a broken index.
+   */
+  readonly generate: (seed: number, primarySubjectValue: string) => readonly EntityRecords[];
 
   /**
    * Keyed by entity name. Tool results arrive as `unknown` from a service we do

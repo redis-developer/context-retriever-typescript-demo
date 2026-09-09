@@ -30,10 +30,21 @@ export const internalTools: readonly InternalTool[] = [
       });
     },
   },
-  {
-    name: "dataset_overview",
-    description:
-      "Returns the number of records loaded per entity, so you can say what data is available before querying it.",
-    execute: async context => context.countRecords(),
-  },
 ];
+
+/**
+ * Why there is no `dataset_overview`.
+ *
+ * An earlier version supplied one, reporting record counts per entity by
+ * scanning the keyspace directly. It was removed rather than fixed. It read
+ * over the seeding credentials, so it counted every customer's records and
+ * reported them to an agent scoped to one customer, which is precisely the
+ * boundary the surface's ACL exists to hold. It also put raw keyspace access on
+ * the request path, in a demonstration whose claim is that the agent reaches
+ * data only through the surface.
+ *
+ * `count_transaction` answers the same question, is generated from the schema,
+ * and is scoped. An internal tool is the right place for what the application
+ * knows and the schema cannot express; it is the wrong place for a second,
+ * unguarded route to the data.
+ */

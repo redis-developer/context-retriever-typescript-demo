@@ -1,5 +1,5 @@
 import { dataPlaneConfig, demoConfig } from "../../config/env.ts";
-import { resolveDomain } from "../../domain/index.ts";
+import { otherSubjectValue, resolveDomain } from "../../domain/index.ts";
 import { buildFilterArgs, conditionFields } from "../../data-plane/conditions.ts";
 import { callTimed, isAggregate, parseRecords } from "../../data-plane/retrieve.ts";
 import { SurfaceSession } from "../../data-plane/session.ts";
@@ -31,24 +31,60 @@ export const guardrails = async (): Promise<void> => {
     const filterTransaction = entityTool(tools, "filter", "transaction");
     const summarize = entityTool(tools, "summarize", "transaction");
     const getById = entityTool(tools, "get", "transaction", "by_id");
-    if (filterTransaction === undefined || summarize === undefined || getById === undefined) {
+    const countTool = entityTool(tools, "count", "transaction");
+    if (
+      filterTransaction === undefined ||
+      summarize === undefined ||
+      getById === undefined ||
+      countTool === undefined
+    ) {
       throw new Error("this surface does not expose the tools this demonstration needs");
     }
 
     heading("1. Enumerated values are a closed set in the tool contract");
     const tagFields = conditionFields(filterTransaction, "tag_conditions") ?? [];
-    console.log(`filter_transaction accepts these tag fields: ${tagFields.join(", ")}`);
+    console.log(`${filterTransaction.name} accepts these tag fields: ${tagFields.join(", ")}`);
     const statusField = (
-      domain.entities.find(entity => entity.name === "transaction")?.fields ?? []
+      domain.entities.find(entity => entity.name === domain.subjectField.entity)?.fields ?? []
     ).find(field => field.name === "status");
-    console.log(`status accepts only: ${(statusField?.allowedValues ?? []).join(", ")}`);
+    const permitted = statusField?.allowedValues ?? [];
+    console.log(`status accepts only: ${permitted.join(", ")}`);
+
+    // Two different refusals, and the difference is the lesson. An unknown
+    // *field* is caught here, before a request is sent, because the field is an
+    // enum in the tool's own schema and this code reads it. A disallowed
+    // *value* is caught by the service: `allowedValues` constrains the
+    // generated parameter, and nothing client-side needs a second copy of the
+    // permitted set for that to hold.
     console.log("");
-    console.log("Attempting a value outside that set:");
+    console.log("A field that is not in the contract, refused before any request:");
     try {
       buildFilterArgs(filterTransaction, { tags: [{ field: "not_a_field", value: "x" }] });
       console.log("  it was accepted, which it should not have been");
     } catch (error) {
-      console.log(`  refused locally: ${error instanceof Error ? error.message : String(error)}`);
+      console.log(`  ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    console.log("");
+    console.log(`A value outside the permitted set, refused by the service:`);
+    const invented = "COMPLETED";
+    if (permitted.includes(invented)) {
+      console.log(`  skipped: ${invented} is permitted on this model, so it proves nothing`);
+    } else {
+      const rejected = await callTimed(session, filterTransaction.name, {
+        tag_conditions: [{ field: "status", value: invented }],
+        limit: 1,
+      });
+      console.log(
+        rejected.toolReportedError
+          ? `  ${rejected.text}`
+          : "  it was accepted, which it should not have been",
+      );
+      console.log(
+        `  ${invented} is a plausible guess and this schema does not use it. The agent has`,
+      );
+      console.log("  made exactly this mistake unprompted, and corrected itself from the");
+      console.log("  permitted set the refusal names.");
     }
     console.log("");
     console.log("Enforced by: the schema. The permitted values are an enum in the");
@@ -129,13 +165,13 @@ export const guardrails = async (): Promise<void> => {
     console.log("integer has sixteen, so an int would corrupt this silently.");
 
     heading("5. A session cannot reach another customer's records");
-    const other = "CUST002";
+    const other = otherSubjectValue(domain, demo.customerId);
     const denied = await callTimed(session, filterTransaction.name, {
-      tag_conditions: [{ field: "customer_id", value: other }],
+      tag_conditions: [{ field: domain.subjectField.field, value: other }],
       limit: 5,
     });
     const deniedCount = (denied.payload as { total_count?: unknown }).total_count;
-    const unscoped = await callTimed(session, "count_transaction", { function: "count" });
+    const unscoped = await callTimed(session, countTool.name, { function: "count" });
     console.log(
       `explicitly requesting ${other}: ${display(deniedCount)} records (${formatMs(denied.ms)})`,
     );

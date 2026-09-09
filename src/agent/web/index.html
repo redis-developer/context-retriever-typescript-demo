@@ -80,6 +80,18 @@
 
     <script type="module">
       const $ = id => document.getElementById(id);
+
+      // Declared before its first use, deliberately. `const` is not hoisted, so
+      // placing this below the session line it escapes would throw on load
+      // rather than silently skip escaping, but either way the reader should be
+      // able to see that every interpolation below has one available.
+      // Escapes for text-node context. An attribute context would additionally
+      // need the single quote.
+      const escape = value =>
+        String(value).replace(
+          /[&<>"]/g,
+          c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
       // Chosen for the shapes the surface answers exactly. A total by currency
       // is one aggregate call; a count over a period is one record, because
       // filter results carry a server-side total_count. A *filtered total* —
@@ -92,16 +104,22 @@
         "Which of my payments failed, and why?",
         "How many card payments did I make last month?",
         "Who are my most frequent counterparties?",
+        "How much did I spend on card payments last month?",
       ];
 
       const session = await fetch("/api/session").then(r => r.json());
+      // Escaped even though all four come from configuration rather than from a
+      // request. The production guidance in the README is that the signed-in
+      // customer stops coming from configuration and arrives on a validated
+      // token, at which point the name is directory data and this line is the
+      // one sink in the file that had forgotten to escape it.
       $("session").innerHTML =
-        `Signed in as <code>${session.customer.customerId}</code> ` +
-        `(${session.customer.name}) · model <code>${session.model}</code> · ` +
-        `domain <code>${session.domain}</code>`;
+        `Signed in as <code>${escape(session.customer.customerId)}</code> ` +
+        `(${escape(session.customer.name)}) · model <code>${escape(session.model)}</code> · ` +
+        `domain <code>${escape(session.domain)}</code>`;
 
       $("examples").innerHTML = EXAMPLES.map(
-        (text, i) => `<button type="button" data-i="${i}">${text}</button>`,
+        (text, i) => `<button type="button" data-i="${i}">${escape(text)}</button>`,
       ).join("");
       $("examples").addEventListener("click", event => {
         const i = event.target.dataset?.i;
@@ -109,9 +127,6 @@
         $("q").value = EXAMPLES[Number(i)];
         $("form").requestSubmit();
       });
-
-      const escape = value =>
-        String(value).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
       const renderTrace = traces =>
         traces

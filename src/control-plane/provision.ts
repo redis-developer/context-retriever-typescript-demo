@@ -89,7 +89,9 @@ export const provision = async (
   console.log(`  active, exposing ${String(surface.tools.length)} tools`);
 
   const imported: Record<string, number> = {};
-  for (const batch of domain.generate(options.seed)) {
+  // The same value that scopes the agent key below, so imported records and
+  // key scope cannot disagree.
+  for (const batch of domain.generate(options.seed, options.accessTagValue)) {
     console.log(`Importing ${String(batch.records.length)} ${batch.entity} records...`);
     const { result } = await client.contextSurfaces.importData(surface.id, {
       entity: batch.entity,

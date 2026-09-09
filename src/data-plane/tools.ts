@@ -56,7 +56,13 @@ export const entityTool = (
  * really the caller looking up the wrong schema.
  */
 export const entityOf = (toolName: string, entities: readonly string[]): string | undefined =>
-  entities.find(entity => toolName.includes(`_${entity.toLowerCase()}`));
+  // Longest match wins. With entities `card` and `card_transaction`, a
+  // first-match search maps `filter_card_transaction` to `card` and then
+  // validates the result against the wrong schema, which is exactly the
+  // misdiagnosis this helper exists to prevent.
+  [...entities]
+    .sort((left, right) => right.length - left.length)
+    .find(entity => toolName.includes(`_${entity.toLowerCase()}`));
 
 /** Groups tools by the entity their name refers to, for display. */
 export const groupByEntity = (

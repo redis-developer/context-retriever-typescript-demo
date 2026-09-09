@@ -10,7 +10,7 @@ It answers a question no single generated tool can: _how much have I sent to cou
 
 Retrieval is scoped, measured and constrained rather than merely working:
 
-- Latency, measured client-side rather than claimed. Median 3.2 ms and 95th percentile 5.6 ms over 30 calls of a ten-row scoped filter, against a locally running service. Your figures will differ; the point is that `npm run query -- --repeat 30` prints yours.
+- Latency, measured client-side rather than claimed. Median 3.2 ms and 95th percentile 5.6 ms over 30 repeats of one ten-row scoped filter, against a locally running service holding 400 records on one node. Under the agent, where each call is a different shape, the median is 11.5 ms. Both figures are printed by the commands that measured them, `npm run query -- --repeat 30` and `npm run bench`, so run yours rather than trusting these. At this dataset size they say the request is cheap, not how the service scales.
 - Five guardrails, each shown refusing something rather than asserted. Two are enforced by the schema, one by the service, and two are the caller's job. That last group is the one worth knowing about.
 - Token cost. Aggregations answer "how much" and "how many" without returning rows. The agent reports its own token and model-call counts per question, and `npm run bench` runs a committed question set and reports them per question and in aggregate.
 
@@ -56,7 +56,7 @@ npm run bench       # the committed question set, timed and costed (calls a live
 
 ## The data model
 
-Two entities. `transaction` carries twenty-five fields, twelve of them indexed. `beneficiary` is the counterparty, normalised out of the transaction row, and the single relationship between them.
+Two entities. `transaction` carries twenty-five fields. Fourteen are indexed, and twelve of those are tag- or numeric-indexed, which is the number that matters: only tag and numeric indexes become `filter_` parameters, and a tool schema is re-sent to the model on every turn. `beneficiary` is the counterparty, normalised out of the transaction row, and the single relationship between them.
 
 Three entities that a first pass would have modelled (customer, account and channel) are deliberately collapsed onto `transaction` as fields. None carries enough attributes to answer a question of its own, and every hop is a round trip charged in latency and tokens. `src/domain/retail-banking/entities.ts` records the reason for each index and each omission.
 
@@ -70,7 +70,9 @@ Three type mappings are decisions rather than translations, and all three are ex
 
 ### Swapping the model
 
-`src/domain/` defines one interface. A different domain is a directory implementing it, one line in the registry, and `DEMO_DOMAIN` pointing at it. Provisioning, retrieval and the agent read only the interface, so nothing else changes.
+`src/domain/` defines one interface. A different domain is a directory implementing `DomainModel`, meaning entities, a key prefix, result schemas, a record generator, a subject field and any internal tools, plus one line in the registry and `DEMO_DOMAIN` pointing at it.
+
+Provisioning, seeding, retrieval and the tool bridge read only the interface, and the access tag that scopes the agent key is derived from your own ACL mapping rather than assumed. Three things are not free, and pretending otherwise would waste your afternoon. The agent's system prompt in `src/agent/bridge.ts` is written for retail banking, and its rules about currency and settled status are domain knowledge that has to be rewritten. The benchmark question set in `src/agent/questions.ts` and the suggestions in the web interface name transactions. And `npm run guardrails` and `npm run compose` are scripted against these two entities by design, because each demonstrates a specific claim about this model. Treat them as worked examples to adapt rather than as generic commands.
 
 ## The generated tool surface
 
@@ -159,7 +161,6 @@ Internal tools exist because the generated tools cannot answer who is signed in 
 
 - `get_customer_profile` returns the signed-in customer. **It takes no arguments, and that is the point:** a tool accepting a customer identifier would let the agent pivot to any customer by passing a different value.
 - `get_current_time` returns the current instant. Not a convenience — `transaction_date` is epoch milliseconds and a model has no clock, so without it the agent invents a window and answers confidently about the wrong dates.
-- `dataset_overview` reports record counts per entity.
 
 **The demo authenticates nobody.** The signed-in customer comes from configuration. In production that value comes from a validated token, and the shape of the code is the same.
 
@@ -167,9 +168,11 @@ Internal tools exist because the generated tools cannot answer who is signed in 
 
 `npm run bench -- --repeat 3` runs the seven committed questions in `src/agent/questions.ts` and reports tokens, model calls, retrieval calls and latency for each. Two of the seven are questions this surface cannot answer, because a benchmark of only the flattering cases reports a figure nobody will reproduce.
 
-The headline is not the one we expected. Measured over 21 turns on a locally running service, retrieval took a median of 11.5 ms per call while a whole turn took a median of 10.31 seconds, so **retrieval is around a tenth of one per cent of the time a question takes.** The model is the entire latency budget. That is worth stating plainly rather than burying: the useful claim is not that retrieval is fast enough, it is that retrieval never becomes the thing you have to optimise.
+Retrieval is not where the time goes, and that is worth stating plainly rather than burying. Measured over 21 turns against a locally running service, retrieval took a median of 11.5 ms per call, while a whole turn took a median of 10.31 seconds. The command reports retrieval's share of a turn by comparing the total retrieval time within a turn against that turn's duration, and it comes to a tenth of one per cent.
 
-The same measurement undercuts a distinction this command was built to draw. The first turn of a process pays for the MCP connection and the first tool discovery, and it is measurably more expensive — 11.21 s against a 10.23 s median for every turn after it — but the premium is a fraction of the model's own variance, so it does not matter in practice. It would matter to a deployment that opened a session per request, which is the mistake `src/data-plane/session.ts` exists to avoid.
+So the model is the latency budget, and the useful claim is not that retrieval is fast enough. It is that the number of model round trips an answer takes is the only lever that moves, and the tool surface is what decides it. One saved round trip is worth roughly a thousand times the entire retrieval cost of a question, which is why `npm run bench` reports model calls per question next to milliseconds.
+
+The same measurement undercuts a distinction this command was built to draw. The first turn of a process pays for the MCP connection and the first tool discovery, and it is measurably more expensive, 11.21 s against a 10.23 s median for every turn after it, but the premium sits inside the model's own variance and so does not matter in practice. It would matter to a deployment that opened a session per request, which is the mistake `src/data-plane/session.ts` exists to avoid.
 
 Run it with `--repeat 3` or more before quoting anything from it. The command reports which questions took a different number of retrieval calls across repeats, and on most runs two or three of the seven do. A single run of a model-driven question set is a sample of one.
 

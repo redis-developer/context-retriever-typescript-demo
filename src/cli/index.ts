@@ -18,13 +18,17 @@ Context Retriever TypeScript demo
   npm run doctor                  What is configured and what is reachable
   npm run seed -- [--flush]       Write generated records into Redis
   npm run provision -- [--name X] Create the surface, import, mint an agent key
-  npm run tools -- [--schema]     Print the tool surface this deployment generated
+  npm run tools -- [options]      Print the tool surface this deployment generated
   npm run query -- [options]      One retrieval call, timed and validated
   npm run guardrails              Each guardrail, shown refusing something
   npm run probe                   What the tool surface cannot express, with no model
   npm run bench -- [--repeat N]   The committed question set, timed and costed
   npm run compose -- [--query X]  One question answered across both entities
   npm run teardown -- [--name X]  Delete the demo surface
+
+tools options
+  --schema        Print each tool's full input schema
+  --entity NAME   Restrict --schema to one entity's tools
 
 query options
   --tool NAME     Call a specific tool instead of the default scoped read

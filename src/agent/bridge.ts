@@ -74,8 +74,6 @@ export const buildToolSet = async (options: BridgeOptions): Promise<ToolSet> => 
   for (const discoveredTool of discovered) {
     tools[discoveredTool.name] = tool({
       description: discoveredTool.description ?? `Retrieval tool ${discoveredTool.name}`,
-      // Handed through verbatim. The service generated it from the data model,
-      // so it already describes exactly what this surface accepts.
       // The service's own schema, handed through unchanged. It is untrusted as
       // configuration but it is exactly what this surface accepts.
       inputSchema: jsonSchema<Record<string, unknown>>(discoveredTool.inputSchema),

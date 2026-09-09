@@ -1,8 +1,8 @@
 import { dataPlaneConfig, demoConfig } from "../../config/env.ts";
-import { resolveDomain } from "../../domain/index.ts";
+import { otherSubjectValue, resolveDomain } from "../../domain/index.ts";
 import { SurfaceSession } from "../../data-plane/session.ts";
 import { createAsk } from "../../agent/ask.ts";
-import { QUESTIONS, type BenchQuestion } from "../../agent/questions.ts";
+import { questionsFor, type BenchQuestion } from "../../agent/questions.ts";
 import { formatMs } from "../../lib/errors.ts";
 
 /**
@@ -64,6 +64,7 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
   const { mcpUrl, agentApiKey } = dataPlaneConfig();
   const session = new SurfaceSession({ mcpUrl, agentApiKey });
   const ask = createAsk({ session, domain });
+  const QUESTIONS = questionsFor(otherSubjectValue(domain, demo.customerId));
 
   const totalTurns = QUESTIONS.length * options.repeat;
   console.log(

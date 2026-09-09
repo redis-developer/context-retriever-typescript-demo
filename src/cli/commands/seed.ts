@@ -12,7 +12,12 @@ export const seed = async (options: { readonly flush: boolean }): Promise<void> 
   if (options.flush) console.log("  clearing existing keys under the domain prefix first");
 
   const { result: reports, ms } = await timed(() =>
-    seedDomain(domain, { redisUrl: url, seed: demo.seed, flush: options.flush }),
+    seedDomain(domain, {
+      redisUrl: url,
+      seed: demo.seed,
+      primarySubjectValue: demo.customerId,
+      flush: options.flush,
+    }),
   );
 
   for (const report of reports) {

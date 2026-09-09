@@ -1,5 +1,5 @@
 import { dataPlaneConfig, demoConfig } from "../../config/env.ts";
-import { resolveDomain } from "../../domain/index.ts";
+import { otherSubjectValue, resolveDomain } from "../../domain/index.ts";
 import { buildFilterArgs } from "../../data-plane/conditions.ts";
 import { callTimed } from "../../data-plane/retrieve.ts";
 import { SurfaceSession } from "../../data-plane/session.ts";
@@ -143,19 +143,12 @@ const SOFT: readonly { readonly rule: string; readonly heldBy: string }[] = [
   },
 ];
 
-/**
- * A customer identifier the agent key is not scoped to.
- *
- * Any value other than the signed-in one does the job, because the key carries
- * exactly one access tag. A recognisably adjacent identifier is used so the
- * output reads as an attempt rather than as a typo.
- */
-const OTHER_CUSTOMER = "CUST002";
-
 export const probe = async (): Promise<void> => {
   const demo = demoConfig();
   const domain = resolveDomain(demo.domain);
   const subject = domain.subjectField;
+  // Derived from the seeded data, never hardcoded: see otherSubjectValue.
+  const other = otherSubjectValue(domain, demo.customerId);
   const { mcpUrl, agentApiKey } = dataPlaneConfig();
   const session = new SurfaceSession({ mcpUrl, agentApiKey });
 
@@ -222,11 +215,11 @@ export const probe = async (): Promise<void> => {
       };
 
       const mine = await matchesFor(demo.customerId);
-      const theirs = await matchesFor(OTHER_CUSTOMER);
+      const theirs = await matchesFor(other);
       console.log("");
       console.log(`  ${filterTransaction.name} where ${subject.field} = ${demo.customerId}`);
       console.log(`              total_count ${String(mine)}`);
-      console.log(`  ${filterTransaction.name} where ${subject.field} = ${OTHER_CUSTOMER}`);
+      console.log(`  ${filterTransaction.name} where ${subject.field} = ${other}`);
       console.log(`              total_count ${String(theirs)}`);
       console.log("");
       if (mine > 0 && theirs === 0) {

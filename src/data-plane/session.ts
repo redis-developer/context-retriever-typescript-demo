@@ -38,21 +38,42 @@ export class SurfaceSession {
     this.#options = options;
   }
 
+  /**
+   * The connect in flight, if any.
+   *
+   * Without this, two requests arriving while the session is closed both see
+   * `isOpen !== true`, both connect, and the second assignment orphans the
+   * first client: a server-side session left open until it expires, and a
+   * `sessionId` that no longer names the client in use. Awaiting one shared
+   * promise makes concurrent callers share one connection, which is the whole
+   * point of holding a session per (URL, key) pair.
+   */
+  #connecting: Promise<ContextRetrieverMCPClient> | undefined;
+
   async #acquire(): Promise<ContextRetrieverMCPClient> {
-    if (this.#client?.isOpen !== true) {
-      this.#client = await ContextRetrieverMCPClient.connect({
-        mcpURL: this.#options.mcpUrl,
-        agentApiKey: () => this.#options.agentApiKey,
-        timeoutMs: this.#options.timeoutMs ?? 30_000,
+    if (this.#client?.isOpen === true) return this.#client;
+    this.#connecting ??= ContextRetrieverMCPClient.connect({
+      mcpURL: this.#options.mcpUrl,
+      agentApiKey: () => this.#options.agentApiKey,
+      timeoutMs: this.#options.timeoutMs ?? 30_000,
+    })
+      .then(client => {
+        this.#client = client;
+        return client;
+      })
+      .finally(() => {
+        // Cleared whether it resolved or rejected, so a failed connect does not
+        // pin every later caller to the same rejection.
+        this.#connecting = undefined;
       });
-    }
-    return this.#client;
+    return this.#connecting;
   }
 
   /** Drops the client without letting a failed teardown escape. */
   async #discard(): Promise<void> {
     const client = this.#client;
     this.#client = undefined;
+    this.#connecting = undefined;
     // `close()` can throw when session termination fails, and an unhandled
     // rejection from cleanup would mask the real error.
     await client?.close().catch(() => undefined);

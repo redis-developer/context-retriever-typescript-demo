@@ -41,7 +41,13 @@ export interface SeedReport {
 
 export const seedDomain = async (
   domain: DomainModel,
-  options: { readonly redisUrl: string; readonly seed: number; readonly flush?: boolean },
+  options: {
+    readonly redisUrl: string;
+    readonly seed: number;
+    /** The subject value most records carry, and what the agent key is scoped to. */
+    readonly primarySubjectValue: string;
+    readonly flush?: boolean;
+  },
 ): Promise<readonly SeedReport[]> => {
   const client = createClient({ url: options.redisUrl });
   client.on("error", () => {
@@ -68,7 +74,7 @@ export const seedDomain = async (
     }
 
     const reports: SeedReport[] = [];
-    for (const batch of domain.generate(options.seed)) {
+    for (const batch of domain.generate(options.seed, options.primarySubjectValue)) {
       const template = templates.get(batch.entity);
       if (template === undefined || template === "") {
         throw new Error(`entity ${JSON.stringify(batch.entity)} declares no redisKeyTemplate`);
@@ -90,32 +96,6 @@ export const seedDomain = async (
       reports.push({ entity: batch.entity, written: batch.records.length });
     }
     return reports;
-  } finally {
-    await client.close();
-  }
-};
-
-/** Counts records per entity, for the `dataset_overview` internal tool. */
-export const countRecords = async (
-  domain: DomainModel,
-  redisUrl: string,
-): Promise<Readonly<Record<string, number>>> => {
-  const client = createClient({ url: redisUrl });
-  client.on("error", () => undefined);
-  await client.connect();
-  try {
-    const counts: Record<string, number> = {};
-    for (const entity of domain.entities) {
-      const prefix = (entity.redisKeyTemplate ?? "").split("{")[0] ?? "";
-      let total = 0;
-      if (prefix !== "") {
-        for await (const keys of client.scanIterator({ MATCH: `${prefix}*`, COUNT: 500 })) {
-          total += keys.length;
-        }
-      }
-      counts[entity.name ?? "unknown"] = total;
-    }
-    return counts;
   } finally {
     await client.close();
   }

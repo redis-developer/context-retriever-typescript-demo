@@ -300,28 +300,30 @@ export const generate = (
     beneficiary_branch: counterparty.branch,
   }));
 
-  const customers = [
-    options.primaryCustomerId,
-    ...Array.from(
-      { length: options.otherCustomerCount },
-      (_, i) => `CUST${String(i + 2).padStart(3, "0")}`,
-    ),
-  ];
+  // The others exclude the primary by value, not by position. Configuring
+  // DEMO_CUSTOMER_ID to a name this loop also generates would otherwise put the
+  // same customer in the list twice, and `indexOf` would then hand two
+  // customers one set of accounts while `others` could pick the signed-in
+  // customer as somebody else, quietly destroying the scoping split the ACL
+  // demonstration rests on.
+  const others = Array.from(
+    { length: options.otherCustomerCount + 1 },
+    (_, i) => `CUST${String(i + 2).padStart(3, "0")}`,
+  )
+    .filter(candidate => candidate !== options.primaryCustomerId)
+    .slice(0, options.otherCustomerCount);
+  const customers = [options.primaryCustomerId, ...others];
   const accountsByCustomer = new Map(
-    customers.map(customerId => [
+    customers.map((customerId, position) => [
       customerId,
-      [
-        wideId(ID_LEADER.account, customers.indexOf(customerId) * 2 + 1),
-        wideId(ID_LEADER.account, customers.indexOf(customerId) * 2 + 2),
-      ],
+      [wideId(ID_LEADER.account, position * 2 + 1), wideId(ID_LEADER.account, position * 2 + 2)],
     ]),
   );
 
   const transactions = Array.from({ length: options.transactionCount }, (_, index) => {
     // Four in five rows belong to the signed-in customer, so the demo has depth
     // while scoping still has other customers' rows to exclude.
-    const customerId =
-      random() < 0.8 ? options.primaryCustomerId : pick(random, customers.slice(1));
+    const customerId = random() < 0.8 ? options.primaryCustomerId : pick(random, others);
     const accounts = accountsByCustomer.get(customerId) ?? [wideId(ID_LEADER.account, 1)];
     const accountId = pick(random, accounts);
     const counterparty = pick(random, beneficiaries);

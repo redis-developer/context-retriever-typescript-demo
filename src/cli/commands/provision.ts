@@ -1,5 +1,5 @@
 import { dataSourceConfig, demoConfig } from "../../config/env.ts";
-import { resolveDomain } from "../../domain/index.ts";
+import { resolveDomain, subjectAccessTag } from "../../domain/index.ts";
 import { createControlPlaneClient } from "../../control-plane/client.ts";
 import { provision as provisionSurface } from "../../control-plane/provision.ts";
 
@@ -21,7 +21,7 @@ export const provision = async (options: { readonly name?: string }): Promise<vo
     // so it will not appear in debug output.
     dataSource: { type: "redis", connectionConfig: connection },
     seed: demo.seed,
-    accessTag: "customer",
+    accessTag: subjectAccessTag(domain),
     accessTagValue: demo.customerId,
   });
 

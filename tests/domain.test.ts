@@ -170,8 +170,12 @@ describe("the entity model", () => {
 
 describe("the record generator", () => {
   it("is deterministic in its seed", () => {
-    expect(JSON.stringify(domain.generate(1))).toEqual(JSON.stringify(domain.generate(1)));
-    expect(JSON.stringify(domain.generate(1))).not.toEqual(JSON.stringify(domain.generate(2)));
+    expect(JSON.stringify(domain.generate(1, "CUST001"))).toEqual(
+      JSON.stringify(domain.generate(1, "CUST001")),
+    );
+    expect(JSON.stringify(domain.generate(1, "CUST001"))).not.toEqual(
+      JSON.stringify(domain.generate(2, "CUST001")),
+    );
   });
 
   // The source columns are NUMBER(20). Held as JavaScript numbers these values
@@ -181,7 +185,7 @@ describe("the record generator", () => {
     "emits %s as a twenty-digit numeric string that would not survive a number round trip",
     field => {
       const record = domain
-        .generate(1)
+        .generate(1, "CUST001")
         .flatMap(b => b.records)
         .find(r => r[field] !== undefined);
       const id = str(record?.[field]);
@@ -192,7 +196,7 @@ describe("the record generator", () => {
   );
 
   it("emits records whose fields all exist in the declared model", () => {
-    for (const batch of domain.generate(1)) {
+    for (const batch of domain.generate(1, "CUST001")) {
       const declared = new Set(fieldsOf(batch.entity).map(f => f.name));
       for (const record of batch.records) {
         for (const key of Object.keys(record)) {
@@ -203,7 +207,7 @@ describe("the record generator", () => {
   });
 
   it("validates its own output against the domain result schemas", () => {
-    for (const batch of domain.generate(1)) {
+    for (const batch of domain.generate(1, "CUST001")) {
       const schema = domain.resultSchemas[batch.entity];
       expect(schema, `no schema for ${batch.entity}`).toBeDefined();
       for (const record of batch.records) {
@@ -213,21 +217,21 @@ describe("the record generator", () => {
   });
 
   it("includes other customers' rows, so scoping has something to exclude", () => {
-    const batch = domain.generate(1).find(b => b.entity === "transaction");
+    const batch = domain.generate(1, "CUST001").find(b => b.entity === "transaction");
     const customers = new Set((batch?.records ?? []).map(r => str(r["customer_id"])));
     expect(customers.size).toBeGreaterThan(1);
     expect(customers).toContain("CUST001");
   });
 
   it("includes failed and pending transactions, so status handling can be demonstrated", () => {
-    const batch = domain.generate(1).find(b => b.entity === "transaction");
+    const batch = domain.generate(1, "CUST001").find(b => b.entity === "transaction");
     const statuses = new Set((batch?.records ?? []).map(r => str(r["status"])));
     expect(statuses).toContain("SUCCESS");
     expect(statuses).toContain("FAILED");
   });
 
   it("spans more than one currency, so cross-currency totals can be shown to be wrong", () => {
-    const batch = domain.generate(1).find(b => b.entity === "transaction");
+    const batch = domain.generate(1, "CUST001").find(b => b.entity === "transaction");
     const currencies = new Set((batch?.records ?? []).map(r => str(r["currency_code"])));
     expect(currencies.size).toBeGreaterThan(1);
   });
@@ -253,7 +257,6 @@ describe("internal tools", () => {
     const tool = domain.internalTools.find(t => t.name === "get_customer_profile");
     const result = await tool?.execute({
       customer: { customerId: "CUST042", name: "Test Person" },
-      countRecords: () => Promise.resolve({}),
     });
     expect(result).toEqual({ customerId: "CUST042", name: "Test Person" });
   });

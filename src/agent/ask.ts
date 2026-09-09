@@ -1,10 +1,9 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
 
-import { agentConfig, demoConfig, redisConfig } from "../config/env.ts";
+import { agentConfig, demoConfig } from "../config/env.ts";
 import type { DomainModel } from "../domain/types.ts";
 import type { SurfaceSession } from "../data-plane/session.ts";
-import { countRecords } from "../seed/seed.ts";
 import { buildToolSet, systemPrompt, type ToolTrace } from "./bridge.ts";
 
 /**
@@ -53,10 +52,7 @@ export const createAsk = (options: {
     const tools = await buildToolSet({
       session: options.session,
       domain: options.domain,
-      context: {
-        customer: { customerId: demo.customerId, name: demo.customerName },
-        countRecords: () => countRecords(options.domain, redisConfig().url),
-      },
+      context: { customer: { customerId: demo.customerId, name: demo.customerName } },
       onTrace: trace => traces.push(trace),
     });
 

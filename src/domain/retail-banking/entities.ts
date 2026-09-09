@@ -87,8 +87,13 @@ export const DR_CR_FLAGS = ["D", "C"] as const;
  * in latency and tokens, and none of the three carries enough attributes to
  * answer a question of its own.
  *
- * Thirteen of the twenty-five fields are indexed. Two omissions are decisions
- * rather than economies, and both are noted at the field.
+ * Fourteen of the twenty-five fields carry an index, and twelve of those are
+ * tag- or numeric-indexed. Twelve is the number that matters, because only
+ * tag and numeric indexes become `filter_` parameters; the other two take text
+ * indexes, which make a field searchable without adding a filter condition.
+ * The remaining ten are stored and returned but cannot be filtered, which for
+ * most of them is simply that nobody would filter on them. One omission is a
+ * decision rather than an economy and is noted at the field: `dr_cr_flag`.
  */
 /*
  * A note on field descriptions, learned by measuring.
@@ -106,9 +111,12 @@ const transaction: EntityDescription = {
     "A single posted or attempted movement of money on a customer account, including its channel, counterparty and outcome.",
   documentType: DocumentType.Json,
   redisKeyTemplate: `${KEY_PREFIX}_transaction:{transaction_id}`,
-  // Declares which field carries the end-user identity. Enforcement additionally
-  // needs an identity provider on the surface and a user token on the MCP
-  // session; this repository declares the mapping without enforcing it.
+  // Declares which field carries the end-user identity, and that declaration is
+  // what enforces scoping: the engine matches this tag against the access tags
+  // on the agent key and denies by default. No identity provider is needed for
+  // that. An identity provider would let a user token carry the tags instead of
+  // the key, which is what production wants, but it is not what makes the
+  // refusal happen. `documentField` must be a top-level JSONPath.
   // `documentField` is a top-level JSONPath, not a bare field name: the engine
   // requires the `$.` prefix and rejects anything deeper than one level.
   aclFieldMappings: [{ documentField: "$.customer_id", accessTag: "customer" }],
@@ -145,7 +153,17 @@ const transaction: EntityDescription = {
       "Direction of the movement from the account's point of view.",
       TRANSACTION_TYPES,
     ),
-    enumerated("transaction_code", "The clearing rail the transaction used.", TRANSACTION_CODES),
+    // These two fields overlap by value and not by meaning: POS and ATM appear
+    // in both enums, and they are independent of each other. A model asked
+    // about "card payments" picked the wrong one and answered zero where the
+    // answer was eight, so each description now says which questions it
+    // answers. Disambiguating a contested term is worth the tokens; leaving it
+    // to the system prompt would not have travelled with the schema.
+    enumerated(
+      "transaction_code",
+      "The clearing rail that settled the payment. Use this for questions about payment type: POS means a card payment.",
+      TRANSACTION_CODES,
+    ),
     indexed(
       "amount",
       FieldType.Float,
@@ -162,7 +180,11 @@ const transaction: EntityDescription = {
       [numeric()],
     ),
     indexed("reference_no", FieldType.Str, "Bank-assigned reference for exact lookup.", [tag()]),
-    enumerated("channel_code", "The channel the customer used.", CHANNEL_CODES),
+    enumerated(
+      "channel_code",
+      "Where the customer initiated the payment, independent of the rail in transaction_code. Use this only for questions about how the customer interacted, not about payment type.",
+      CHANNEL_CODES,
+    ),
     indexed(
       "beneficiary_id",
       FieldType.Str,
