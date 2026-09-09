@@ -1,12 +1,10 @@
 <div align="center">
-
-# Context Retriever TypeScript demo
-
-**A worked reference for the Context Retriever TypeScript SDK**
+    <img width="300" src="https://raw.githubusercontent.com/redis/redis-vl-python/main/docs/_static/Redis_Logo_Red_RGB.svg" alt="Redis">
+    <h1>Context Retriever TypeScript demo</h1>
+    <p><strong>A worked reference for the Context Retriever TypeScript SDK</strong></p>
+</div>
 
 Built on [`@redis-iris/context-retriever`](https://www.npmjs.com/package/@redis-iris/context-retriever), the SDK for [Redis Iris](https://redis.io/iris/) Context Retriever, over a synthetic retail-banking transaction model.
-
-</div>
 
 ---
 
