@@ -46,9 +46,12 @@ Then the two demonstrations, and the agent:
 
 ```bash
 npm run guardrails  # each guardrail, shown refusing something
+npm run probe       # what the tool surface cannot express, with no model involved
 npm run compose     # one question answered across both entities
 npm run agent       # a web interface on http://localhost:3100
 ```
+
+`probe` is the one to run if you have time for only one. Everything else here shows the system doing something; `probe` shows what it cannot do, and it calls no model, so the result is a property of the deployment rather than a sample of one model's behaviour on the day. It separates the reads no tool can express from the rules that live in a sentence of the system prompt, because both look identical in a transcript and only one of them survives a model upgrade. It exits non-zero if the surface turns out to expose a read it expected to be foreclosed.
 
 ## The data model
 

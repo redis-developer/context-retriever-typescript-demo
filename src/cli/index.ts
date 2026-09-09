@@ -4,6 +4,7 @@ import { runCommand } from "../lib/errors.ts";
 import { compose } from "./commands/compose.ts";
 import { doctor } from "./commands/doctor.ts";
 import { guardrails } from "./commands/guardrails.ts";
+import { probe } from "./commands/probe.ts";
 import { provision } from "./commands/provision.ts";
 import { query } from "./commands/query.ts";
 import { seed } from "./commands/seed.ts";
@@ -19,6 +20,7 @@ Context Retriever TypeScript demo
   npm run tools -- [--schema]     Print the tool surface this deployment generated
   npm run query -- [options]      One retrieval call, timed and validated
   npm run guardrails              Each guardrail, shown refusing something
+  npm run probe                   What the tool surface cannot express, with no model
   npm run compose -- [--query X]  One question answered across both entities
   npm run teardown -- [--name X]  Delete the demo surface
 
@@ -80,6 +82,9 @@ const main = async (): Promise<void> => {
       return;
     case "guardrails":
       await guardrails();
+      return;
+    case "probe":
+      await probe();
       return;
     case "query":
       await query({

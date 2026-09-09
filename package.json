@@ -24,7 +24,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "guardrails": "node src/cli/index.ts guardrails"
+    "guardrails": "node src/cli/index.ts guardrails",
+    "probe": "node src/cli/index.ts probe"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.60",
