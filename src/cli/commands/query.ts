@@ -81,11 +81,14 @@ export const query = async (options: {
     }
 
     // An aggregate answers with a value or groups, not rows, so it is reported
-    // as what it is rather than validated against a record schema.
-    if (isAggregate(outcome.payload)) {
+    // as what it is rather than validated against a record schema. Reported and
+    // not returned from: `--repeat` is documented for any call, and returning
+    // here meant an aggregate silently made one request and printed no
+    // distribution.
+    const isAggregateResult = isAggregate(outcome.payload);
+    if (isAggregateResult) {
       console.log(`aggregate answered in ${formatMs(outcome.ms)}`);
       console.log(`  ${JSON.stringify(outcome.payload)}`);
-      return;
     }
 
     // The schema follows the *tool*, not the domain's subject entity. With
@@ -99,7 +102,7 @@ export const query = async (options: {
           .map(candidate => candidate.name)
           .filter((name): name is string => name !== undefined),
       ) ?? subject.entity;
-    const schema = domain.resultSchemas[entity];
+    const schema = isAggregateResult ? undefined : domain.resultSchemas[entity];
     if (schema !== undefined) {
       const { records, problems } = parseRecords(outcome.payload, schema);
       console.log(`${String(records.length)} record(s) returned in ${formatMs(outcome.ms)}`);

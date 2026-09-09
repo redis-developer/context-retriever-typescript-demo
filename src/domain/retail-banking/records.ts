@@ -300,6 +300,28 @@ export const generate = (
     beneficiary_branch: counterparty.branch,
   }));
 
+  /**
+   * Settlement currency per counterparty, not per payment.
+   *
+   * Drawing a currency for each transaction gave a single foreign counterparty
+   * both USD and EUR rows, which quietly made `sum(amount)` grouped by
+   * `beneficiary_id` a cross-currency total and falsified what
+   * `npm run compose` says about its own output. A counterparty's account has
+   * one currency, so the fixture now models that. Foreign counterparties
+   * alternate, so the set still spans three currencies and the cross-currency
+   * guardrail still has something to catch.
+   *
+   * Held beside the records rather than on them, because the beneficiary entity
+   * does not declare a currency field and adding one would change the generated
+   * tool surface for a fixture detail.
+   */
+  const currencyOf = new Map(
+    COUNTERPARTIES.map((counterparty, index) => [
+      wideId(ID_LEADER.beneficiary, index + 1),
+      counterparty.country === "AE" ? "AED" : index % 2 === 0 ? "USD" : "EUR",
+    ]),
+  );
+
   // The others exclude the primary by value, not by position. Configuring
   // DEMO_CUSTOMER_ID to a name this loop also generates would otherwise put the
   // same customer in the list twice, and `indexOf` would then hand two
@@ -330,8 +352,12 @@ export const generate = (
 
     const status = random() < 0.88 ? "SUCCESS" : pick(random, TRANSACTION_STATUSES.slice(1));
     const transactionType = pick(random, TRANSACTION_TYPES);
-    const currencyCode =
-      counterparty.beneficiary_country === "AE" ? "AED" : pick(random, ["USD", "EUR"]);
+    // A counterparty's currency is a property of the counterparty, not of each
+    // payment to it. Drawing per transaction gave a single foreign beneficiary
+    // both USD and EUR rows, which made a sum grouped by beneficiary_id a
+    // cross-currency total and falsified what `npm run compose` says about its
+    // own output.
+    const currencyCode = currencyOf.get(counterparty.beneficiary_id) ?? "AED";
     const amount = money(random, 12, currencyCode === "AED" ? 9_500 : 2_400);
     const balanceBefore = money(random, 4_000, 180_000);
     const isDebit = transactionType !== "CREDIT";

@@ -110,28 +110,56 @@ export const compose = async (options: { readonly query: string }): Promise<void
     if (answered === 0)
       console.log("     matched counterparties, but none of them have transactions");
     console.log("");
-    console.log("Totals are per counterparty and each counterparty settles in one");
-    console.log("currency here, so these are comparable. Across mixed currencies they");
-    console.log("would not be; see `npm run guardrails`.");
-
-    // The contrast that makes the token argument concrete.
-    const rows = await callTimed(session, filterTransaction.name, {
-      tag_conditions: [
-        {
-          field: "beneficiary_id",
-          value: display((matched[0] as Record<string, unknown>)["beneficiary_id"]),
-        },
-      ],
-      limit: 100,
-    });
-    const rowCount = (rows.payload as { total_count?: unknown }).total_count;
+    console.log("What these totals are, precisely, because the label matters more");
+    console.log("than the number. Each is the sum of every amount recorded against");
+    console.log("that counterparty, in either direction and in every status: credits");
+    console.log("as well as debits, and attempts that failed alongside payments that");
+    console.log("settled. It is not the amount sent to them.");
     console.log("");
-    console.log("Cost of the alternative");
-    console.log("-----------------------");
-    console.log(`Rows for just the first counterparty: ${display(rowCount)}`);
-    console.log("Summing client-side means retrieving every one of those rows, for");
-    console.log("every counterparty, and a model pays for all of it. The aggregation");
-    console.log("above answered the same question with one small result.");
+    console.log("Narrowing it to successful outgoing payments would need a filtered");
+    console.log("aggregate, and this surface has none: summarize takes no conditions.");
+    console.log("That is the boundary `npm run probe` reports, met here in the middle");
+    console.log("of a real question rather than in the abstract. The exact filtered");
+    console.log("figure available instead is a count, shown below.");
+    console.log("");
+    console.log("They are comparable across counterparties because each settles in");
+    console.log("one currency. Grouped by anything else they would not be; see");
+    console.log("`npm run guardrails`.");
+
+    // A filtered count, which is the one narrowed figure this surface answers
+    // exactly. `limit: 1` transfers a single record; `total_count` is the
+    // server's own match count for the conditions, independent of the page.
+    const firstId = display((matched[0] as Record<string, unknown>)["beneficiary_id"]);
+    const settled = await callTimed(session, filterTransaction.name, {
+      tag_conditions: [
+        { field: "beneficiary_id", value: firstId },
+        { field: "status", value: "SUCCESS" },
+        { field: "transaction_type", value: "DEBIT" },
+      ],
+      limit: 1,
+    });
+    const settledCount = (settled.payload as { total_count?: unknown }).total_count;
+    const all = await callTimed(session, filterTransaction.name, {
+      tag_conditions: [{ field: "beneficiary_id", value: firstId }],
+      limit: 1,
+    });
+    const allCount = (all.payload as { total_count?: unknown }).total_count;
+
+    console.log("");
+    console.log("What is exactly answerable about a subset");
+    console.log("-----------------------------------------");
+    console.log(`First counterparty, all rows:           ${display(allCount)}`);
+    console.log(`Successful debits only:                 ${display(settledCount)}`);
+    console.log("Both figures are exact and each cost one record, because a filter");
+    console.log("result carries the server's match count for its conditions whatever");
+    console.log("page size you ask for. So a filtered *count* is free and a filtered");
+    console.log("*sum* is unavailable, which is a sharper way to describe the boundary");
+    console.log("than saying aggregates are limited.");
+    console.log("");
+    console.log("Totalling those rows in the caller instead would mean retrieving");
+    console.log("every one of them, for every counterparty, and a model pays for all");
+    console.log("of it. The aggregation above returned one small result for the whole");
+    console.log("set, which is the trade this command exists to show.");
 
     // Engine-side traversal, which is the one tool that changes entity.
     if (expand !== undefined && getBeneficiary !== undefined) {

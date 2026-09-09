@@ -38,6 +38,14 @@ interface Observation {
   readonly turnMs: number;
   readonly retrievalCalls: number;
   readonly retrievalMs: number;
+  /**
+   * Every retrieval call's duration, not their total.
+   *
+   * A per-call median has to be taken over calls. Averaging within a turn first
+   * gives a turn with one call the same weight as a turn with eleven, and a
+   * turn's average is not a figure any call took.
+   */
+  readonly retrievalDurations: readonly number[];
   readonly rowsReturned: number;
   readonly refusedCalls: number;
   /** True when the answer retrieved nothing, which for a refusal is correct. */
@@ -87,6 +95,7 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
           turnMs: result.wallMs,
           retrievalCalls: retrieval.length,
           retrievalMs: sum(retrieval.map(trace => trace.ms)),
+          retrievalDurations: retrieval.map(trace => trace.ms),
           rowsReturned: sum(retrieval.map(trace => trace.rows ?? 0)),
           refusedCalls: retrieval.filter(trace => !trace.ok).length,
           declined: retrieval.length === 0,
@@ -116,9 +125,7 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
     }
 
     // Retrieval against turn. The whole point of separating them.
-    const allRetrieval = observations.flatMap(one =>
-      one.retrievalCalls === 0 ? [] : [one.retrievalMs / one.retrievalCalls],
-    );
+    const allRetrieval = observations.flatMap(one => one.retrievalDurations);
     const first = observations.slice(0, QUESTIONS.length === 0 ? 0 : 1);
     const rest = observations.slice(1);
 
@@ -132,9 +139,12 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
     console.log(
       `  a whole turn             median ${formatMs(median(observations.map(one => one.turnMs)))}`,
     );
-    const retrievalShare =
-      median(observations.map(one => one.retrievalMs)) /
-      Math.max(median(observations.map(one => one.turnMs)), 1);
+    // The share is computed per turn and then reduced, rather than dividing one
+    // median by another. Two medians drawn from different populations do not
+    // form a ratio anybody can interpret.
+    const retrievalShare = median(
+      observations.map(one => one.retrievalMs / Math.max(one.turnMs, 1)),
+    );
     console.log(
       `  retrieval's share of a turn  ${(retrievalShare * 100).toFixed(1)}%, so the model is the cost`,
     );

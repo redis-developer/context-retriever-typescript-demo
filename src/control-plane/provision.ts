@@ -1,8 +1,8 @@
-import { ConflictError } from "@redis-iris/context-retriever";
 import type { ContextRetrieverClient } from "@redis-iris/context-retriever";
 import type { ContextSurface, DataSourceRequest } from "@redis-iris/context-retriever/models";
 
 import type { DomainModel } from "../domain/index.ts";
+import { assertSurfaceMatches, findSurfacesByName } from "./surfaces.ts";
 import { waitUntilActive } from "./wait.ts";
 
 export interface ProvisionOptions {
@@ -26,26 +26,6 @@ export interface ProvisionResult {
   };
 }
 
-/** Finds a surface by name, following pagination rather than assuming one page. */
-const findSurfaceByName = async (
-  client: ContextRetrieverClient,
-  name: string,
-): Promise<ContextSurface> => {
-  for (let page = 1; ; page += 1) {
-    const { result } = await client.contextSurfaces.listContextSurfaces(page, 100);
-    const match = (result.contextSurfaces ?? []).find(candidate => candidate.name === name);
-    if (match?.id !== undefined) {
-      const { result: surface } = await client.contextSurfaces.getContextSurface(match.id);
-      return surface;
-    }
-    if (result.pagination?.hasNext !== true) {
-      throw new Error(
-        `Create reported a conflict, but no surface named ${JSON.stringify(name)} exists`,
-      );
-    }
-  }
-};
-
 /**
  * Creates the surface from the committed model, waits for it, imports records,
  * and mints an agent key.
@@ -62,24 +42,41 @@ export const provision = async (
   domain: DomainModel,
   options: ProvisionOptions,
 ): Promise<ProvisionResult> => {
-  console.log(`Creating surface ${JSON.stringify(options.surfaceName)}...`);
+  // Look before creating. The service does not enforce unique surface names, so
+  // relying on a conflict to detect an existing surface silently accumulates
+  // duplicates instead: every rerun creates another, and any later lookup by
+  // name then picks one of them arbitrarily.
   let surface: ContextSurface;
-  try {
+  const existing = await findSurfacesByName(client, options.surfaceName);
+  if (existing.length > 1) {
+    throw new Error(
+      `${String(existing.length)} surfaces are already named ${JSON.stringify(options.surfaceName)}, ` +
+        `so this cannot tell which one you mean. Delete them and provision again, or pass ` +
+        `--name to use a distinct name.`,
+    );
+  }
+  const reusable = existing[0];
+  if (reusable !== undefined) {
+    // See assertSurfaceMatches for the two ways a same-name surface is the
+    // wrong one to reuse.
+    assertSurfaceMatches(reusable, domain);
+    console.log(
+      `Surface ${JSON.stringify(options.surfaceName)} already exists and matches this model; continuing with it.`,
+    );
+    surface = reusable;
+  } else {
+    console.log(`Creating surface ${JSON.stringify(options.surfaceName)}...`);
     ({ result: surface } = await client.contextSurfaces.createContextSurface({
       name: options.surfaceName,
       description: domain.description,
-      dataSource: options.dataSource,
       dataModel: {
         title: domain.title,
         description: domain.description,
         entities: [...domain.entities],
       },
+      dataSource: options.dataSource,
       metadata: { createdBy: "context-retriever-typescript-demo", domain: domain.name },
     }));
-  } catch (error) {
-    if (!(error instanceof ConflictError)) throw error;
-    console.log("  a surface with that name already exists; continuing with it");
-    surface = await findSurfaceByName(client, options.surfaceName);
   }
   console.log(`  surface ${surface.id}`);
 

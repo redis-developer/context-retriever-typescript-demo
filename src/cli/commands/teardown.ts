@@ -1,6 +1,7 @@
 import { demoConfig } from "../../config/env.ts";
 import { resolveDomain } from "../../domain/index.ts";
 import { createControlPlaneClient } from "../../control-plane/client.ts";
+import { findSurfacesByName } from "../../control-plane/surfaces.ts";
 
 /**
  * Deletes the demo surface.
@@ -16,8 +17,27 @@ export const teardown = async (options: { readonly name?: string }): Promise<voi
   const target = options.name ?? `${domain.name}-demo`;
   const client = createControlPlaneClient();
 
-  const { result } = await client.contextSurfaces.listContextSurfaces(1, 100);
-  const surface = (result.contextSurfaces ?? []).find(candidate => candidate.name === target);
+  // Paginated, and plural. Reading only the first page reported "nothing to do"
+  // for a surface that existed on page two; and because the service permits
+  // duplicate names, deleting the first match would delete an arbitrary one.
+  const surfaces = await findSurfacesByName(client, target);
+  if (surfaces.length === 0) {
+    console.log(`No surface named ${JSON.stringify(target)}; nothing to do.`);
+    return;
+  }
+  if (surfaces.length > 1) {
+    console.log(`${String(surfaces.length)} surfaces are named ${JSON.stringify(target)}:`);
+    for (const candidate of surfaces) console.log(`  ${candidate.id}`);
+    console.log("");
+    console.log("Deleting all of them, because they are all this demo's.");
+    for (const candidate of surfaces) {
+      await client.contextSurfaces.deleteContextSurface(candidate.id);
+      console.log(`  deleted ${candidate.id}`);
+    }
+    console.log("Records in Redis are untouched: a surface indexed them, it did not own them.");
+    return;
+  }
+  const surface = surfaces[0];
   if (surface?.id === undefined) {
     console.log(`No surface named ${JSON.stringify(target)}; nothing to do.`);
     return;

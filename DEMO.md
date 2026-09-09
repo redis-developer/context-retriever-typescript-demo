@@ -104,7 +104,7 @@ What the agent is doing is still the right behaviour, and that is worth separati
 
 You will be asked how fast it is. Give the real numbers, in this order.
 
-Retrieval is a median of 11.5 ms per call. A whole turn is a median of 10.31 seconds. Retrieval is about a tenth of one per cent of the time a question takes.
+Retrieval is a median of 11.4 ms per call, across 40 calls in one 21-turn run. A whole turn is a median of 11.71 seconds. Retrieval is about a tenth of one per cent of the time a question takes.
 
 Then say what follows from that, which is the useful part. The model is the entire latency budget, so the only lever that moves is how many model round trips an answer takes — and that is decided by the tool surface. One round trip saved is worth roughly a thousand times the entire retrieval cost of a question. That is why the trace shows model calls next to milliseconds.
 
