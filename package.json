@@ -1,0 +1,46 @@
+{
+  "name": "context-retriever-typescript-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A worked reference for the Redis Context Retriever TypeScript SDK over a retail-banking entity model.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "cr": "node src/cli/index.ts",
+    "doctor": "node src/cli/index.ts doctor",
+    "seed": "node src/cli/index.ts seed",
+    "provision": "node src/cli/index.ts provision",
+    "tools": "node src/cli/index.ts tools",
+    "query": "node src/cli/index.ts query",
+    "compose": "node src/cli/index.ts compose",
+    "teardown": "node src/cli/index.ts teardown",
+    "agent": "node src/agent/server.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "guardrails": "node src/cli/index.ts guardrails"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.60",
+    "@redis-iris/context-retriever": "^0.1.1",
+    "ai": "^7.0.93",
+    "dotenv": "^17.4.2",
+    "redis": "^6.2.1",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.5.0",
+    "eslint": "^10.10.0",
+    "prettier": "^3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.0"
+  }
+}
