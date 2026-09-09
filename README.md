@@ -1,18 +1,89 @@
+<div align="center">
+
 # Context Retriever TypeScript demo
 
-A worked reference for [`@redis-iris/context-retriever`](https://www.npmjs.com/package/@redis-iris/context-retriever), the TypeScript SDK for Redis Context Retriever, over a retail-banking transaction model.
+**A worked reference for the Context Retriever TypeScript SDK**
+
+Built on [`@redis-iris/context-retriever`](https://www.npmjs.com/package/@redis-iris/context-retriever), the SDK for [Redis Iris](https://redis.io/iris/) Context Retriever, over a synthetic retail-banking transaction model.
+
+</div>
+
+---
+
+## What Context Retriever is
+
+Context Retriever turns a database into a tool surface an agent can use safely.
+
+You declare a data model: your entities, their fields, and which of those fields are indexed. The service builds the Redis indexes and generates a set of typed [MCP](https://modelcontextprotocol.io) tools from that model, with names like `filter_transaction` and `summarize_transaction`. Your agent calls those tools. It never writes a query, and it cannot ask for anything the model does not declare.
+
+Two consequences are the reason to reach for it.
+
+**The tool contract is the boundary.** Constraints live in the schema rather than in a prompt, so a filter on a value outside an enumerated set is refused by the service. The agent cannot express the wrong request, rather than being asked not to make it.
+
+**Reads are scoped by declaration.** A field mapping on the entity, paired with access tags on the calling credential, means one session sees one customer's records. Denial is the default, so a misconfiguration returns nothing rather than everything.
+
+The vocabulary is worth having straight before you read any code:
+
+| Term                | What it means                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| **Data model**      | The entities, fields, indexes, relationships and ACL mappings you declare                       |
+| **Context surface** | One deployed data model, with its Redis indexes and its generated tools                         |
+| **Control plane**   | The admin REST API. Creates surfaces, imports data, mints keys. Authenticated with an admin key |
+| **Data plane**      | The MCP endpoint your agent calls. Authenticated with an agent key scoped to one surface        |
+| **Agent key**       | A scoped credential. Its access tags decide which records the holder may see                    |
+| **Generated tools** | The MCP tools built from your model. You discover them at runtime; you do not write them        |
+
+The [product documentation](https://redis.io/docs/latest/develop/ai/context-engine/context-retriever/) covers the service itself. This repository covers using it from TypeScript.
+
+## What this repository is
 
 The SDK ships a good README and five example scripts. What it does not ship is those pieces assembled into a working application against a realistic data model, which is where the mistakes actually happen. This repository is that assembly, with each non-obvious decision explained where the code makes it.
 
-It answers a question no single generated tool can: _how much have I sent to counterparties matching this text?_ Answering it needs a lexical search on one entity, an aggregation on another, a join between them, and a session that can only see one customer's records.
+The worked example is a retail-banking assistant: an agent that answers a signed-in customer's questions about their own transactions, and can see nobody else's. It is deliberately small enough to read in an afternoon and complete enough to run.
 
-## What it demonstrates
+Read it for one of three reasons. To copy the patterns into your own TypeScript project. To see what the generated tool surface actually looks like against a non-trivial model. Or to understand where the boundaries of the product are, which is the part a demo usually leaves out.
 
-Retrieval is scoped, measured and constrained rather than merely working:
+## What is inside
 
-- Latency, measured client-side rather than claimed. Median 3.2 ms and 95th percentile 5.6 ms over 30 repeats of one ten-row scoped filter, against a locally running service holding 400 records on one node. Under the agent, where each call is a different shape, the median is 11.5 ms. Both figures are printed by the commands that measured them, `npm run query -- --repeat 30` and `npm run bench`, so run yours rather than trusting these. At this dataset size they say the request is cheap, not how the service scales.
-- Five guardrails, each shown refusing something rather than asserted. Two are enforced by the schema, one by the service, and two are the caller's job. That last group is the one worth knowing about.
-- Token cost. Aggregations answer "how much" and "how many" without returning rows. The agent reports its own token and model-call counts per question, and `npm run bench` runs a committed question set and reports them per question and in aggregate.
+| Command              | What it does                                                          |
+| -------------------- | --------------------------------------------------------------------- |
+| `npm run doctor`     | Reports what is configured and what is reachable                      |
+| `npm run seed`       | Writes deterministic synthetic records into Redis                     |
+| `npm run provision`  | Creates the surface, imports the records, mints a scoped agent key    |
+| `npm run tools`      | Prints the tool surface this deployment generated                     |
+| `npm run query`      | One retrieval call, timed and validated                               |
+| `npm run guardrails` | Each guardrail, shown refusing something                              |
+| `npm run probe`      | What the tool surface cannot express, decided without calling a model |
+| `npm run compose`    | One question answered across both entities                            |
+| `npm run agent`      | A tool-calling agent behind a single-file web interface               |
+| `npm run bench`      | A committed question set, with tokens and latency per question        |
+| `npm run teardown`   | Deletes the surface, leaving the records in Redis                     |
+
+The code behind them:
+
+```
+src/config/env.ts    Zod-validated environment, reporting every missing variable at once
+src/domain/          The DomainModel interface and the retail-banking implementation
+src/control-plane/   Administrative REST: surfaces, provisioning, agent keys
+src/data-plane/      MCP: session lifecycle, tool discovery, retrieval
+src/seed/            A thin Redis seeding utility
+src/cli/             The commands above
+src/agent/           The bridge, an HTTP server and a single-file interface
+```
+
+If you are showing this to somebody rather than reading it, [DEMO.md](DEMO.md) is the script: what to run, in what order, what to say at each step, and what not to promise.
+
+## What it evidences
+
+The three claims this repository makes, and the command that shows each. Every figure quoted further down was printed by one of these, so run yours rather than trusting ours.
+
+| Claim           | How you see it                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Low latency** | `npm run query -- --repeat 30` reports a distribution. `npm run bench` reports retrieval against a whole agent turn               |
+| **Guardrails**  | `npm run guardrails` makes each one refuse something. `npm run probe` reports what no tool can express at all                     |
+| **Token cost**  | Aggregations answer "how much" and "how many" without returning rows. `npm run bench` reports tokens and model calls per question |
+
+Not all five guardrails are the platform's to apply, and the table further down says which are yours.
 
 ## Requirements
 
@@ -28,33 +99,15 @@ npm install
 cp .env.example .env
 ```
 
-Fill in `.env`, then work down the commands below. Each prints what to do next.
+Fill in `.env`, then run the commands in the order listed above. Each one prints what to do next, so you can work down the list without referring back here.
 
-```bash
-npm run doctor      # what is configured, and what is reachable
-npm run seed        # write generated records into Redis
-npm run provision   # create the surface, import, mint a scoped agent key
-npm run tools       # the tool surface this deployment generated
-npm run query       # one retrieval call, timed and validated
-```
+Three of them are worth a note before you start.
 
-`npm run doctor` is worth running first and whenever something is confusing. It distinguishes the three things that look alike: a missing variable, an unreachable service, and a rejected credential.
+`npm run doctor` is worth running first, and again whenever something is confusing. It distinguishes the three failures that look alike: a missing variable, an unreachable service, and a rejected credential.
 
-`npm run provision` prints an agent key. It is returned exactly once and no endpoint reads it back, so store it when you see it.
+`npm run provision` prints an agent key. The service returns it exactly once and no endpoint reads it back, so put it in `.env` when you see it.
 
-Then the two demonstrations, and the agent:
-
-```bash
-npm run guardrails  # each guardrail, shown refusing something
-npm run probe       # what the tool surface cannot express, with no model involved
-npm run compose     # one question answered across both entities
-npm run agent       # a web interface on http://localhost:3100
-npm run bench       # the committed question set, timed and costed (calls a live model)
-```
-
-If you are showing this to somebody rather than reading it, [DEMO.md](DEMO.md) is the script: what to run, in what order, what to say at each step, and what not to promise.
-
-`probe` is the one to run if you have time for only one. Everything else here shows the system doing something; `probe` shows what it cannot do, and it calls no model, so the result is a property of the deployment rather than a sample of one model's behaviour on the day. It separates the reads no tool can express from the rules that live in a sentence of the system prompt, because both look identical in a transcript and only one of them survives a model upgrade. It exits non-zero if the surface turns out to expose a read it expected to be foreclosed.
+`npm run probe` is the one to run if you have time for only one. Everything else shows the system doing something; `probe` shows what it cannot do, and it calls no model, so its result is a property of the deployment rather than a sample of one model's behaviour on the day. It separates the reads no tool can express from the rules that live in a sentence of the system prompt, because both look identical in a transcript and only one survives a model upgrade. It exits non-zero if the surface turns out to expose a read it expected to be foreclosed.
 
 ## The data model
 
@@ -129,19 +182,9 @@ Worth knowing before you debug it: a key with no matching access tag sees **none
 
 Configuring an identity provider on the surface and passing a user token per request is the dynamic variant, where the tag comes from a verified claim rather than being fixed when the key is minted. That is not implemented here.
 
-## Layout
+## Two planes, two credentials
 
-```
-src/config/env.ts    Zod-validated environment, reporting every missing variable at once
-src/domain/          The DomainModel interface and the retail-banking implementation
-src/control-plane/   Administrative REST: surfaces, provisioning, agent keys
-src/data-plane/      MCP: session lifecycle, tool discovery, retrieval
-src/seed/            A thin Redis seeding utility
-src/cli/             The commands above
-src/agent/           The bridge, an HTTP server and a single-file interface
-```
-
-`control-plane` and `data-plane` are separate directories with no import between them. They use different protocols and different credentials, and the SDK documents mixing them up as the usual cause of a puzzling 401. Keeping them apart makes holding the wrong credential structurally impossible rather than something to remember.
+`control-plane` and `data-plane` are separate directories with no import between them. They speak different protocols and take different credentials, and the SDK documents mixing them up as the usual cause of a puzzling 401. Keeping them apart makes holding the wrong credential structurally impossible rather than something to remember.
 
 An admin key administers surfaces and must never reach an agent. An agent key is scoped to one surface and administers nothing.
 
