@@ -47,6 +47,17 @@ export const entityTool = (
   return findTool(tools, parts.join("_"));
 };
 
+/**
+ * The entity a tool's name refers to, or undefined for the set-algebra tools.
+ *
+ * Needed wherever a result has to be interpreted rather than merely displayed:
+ * validating a `filter_beneficiary` result against the transaction schema
+ * reports every record as malformed, which reads as a service fault when it is
+ * really the caller looking up the wrong schema.
+ */
+export const entityOf = (toolName: string, entities: readonly string[]): string | undefined =>
+  entities.find(entity => toolName.includes(`_${entity.toLowerCase()}`));
+
 /** Groups tools by the entity their name refers to, for display. */
 export const groupByEntity = (
   tools: readonly MCPTool[],
@@ -55,7 +66,7 @@ export const groupByEntity = (
   const grouped = new Map<string, MCPTool[]>();
   const other: MCPTool[] = [];
   for (const tool of tools) {
-    const owner = entities.find(entity => tool.name.includes(`_${entity.toLowerCase()}`));
+    const owner = entityOf(tool.name, entities);
     if (owner === undefined) {
       other.push(tool);
       continue;

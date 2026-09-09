@@ -7,7 +7,7 @@ import {
   parseRecords,
   summariseLatency,
 } from "../../data-plane/retrieve.ts";
-import { entityTool } from "../../data-plane/tools.ts";
+import { entityOf, entityTool } from "../../data-plane/tools.ts";
 import { buildFilterArgs } from "../../data-plane/conditions.ts";
 import { display, formatMs } from "../../lib/errors.ts";
 
@@ -88,7 +88,18 @@ export const query = async (options: {
       return;
     }
 
-    const schema = domain.resultSchemas[subject.entity];
+    // The schema follows the *tool*, not the domain's subject entity. With
+    // `--tool filter_beneficiary` the two differ, and validating beneficiary
+    // records against the transaction schema reported every one of them as
+    // malformed.
+    const entity =
+      entityOf(
+        toolName,
+        domain.entities
+          .map(candidate => candidate.name)
+          .filter((name): name is string => name !== undefined),
+      ) ?? subject.entity;
+    const schema = domain.resultSchemas[entity];
     if (schema !== undefined) {
       const { records, problems } = parseRecords(outcome.payload, schema);
       console.log(`${String(records.length)} record(s) returned in ${formatMs(outcome.ms)}`);
@@ -104,6 +115,14 @@ export const query = async (options: {
       // the point here is that the right rows came back, not every field.
       for (const record of records.slice(0, Math.min(5, options.limit))) {
         const row = record as Record<string, unknown>;
+        if (entity !== subject.entity) {
+          // Any other entity gets a generic projection. A per-entity format
+          // would have to be maintained for every domain, and this command
+          // exists to show that the right records came back, not to render
+          // them well.
+          console.log(`  ${JSON.stringify(row).slice(0, 160)}`);
+          continue;
+        }
         const when =
           typeof row["transaction_date"] === "number"
             ? new Date(row["transaction_date"]).toISOString().slice(0, 10)

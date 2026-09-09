@@ -103,6 +103,19 @@ Run `npm run guardrails` to see each of these refuse something.
 
 The last two are the important rows. They are not guardrails the platform can apply for you, and a demo that showed only the first three would mislead.
 
+`npm run probe` reports the same table from the other direction: which of these boundaries no tool can express, and which are a sentence in a system prompt that a determined user could argue past.
+
+### The enum guardrail, caught firing
+
+The best demonstration of `allowedValues` was not written for the README. Asked how much had been spent on card payments last month, the agent decided to exclude transactions that had not settled, and filtered on a status value it had inferred rather than read:
+
+```
+invalid tag_conditions[3]: on "status": value "COMPLETED" is not allowed;
+valid values: SUCCESS, FAILED, PENDING
+```
+
+`COMPLETED` is a reasonable guess and this schema does not use it. Three things in that one line are worth noticing. The refusal came from the service, not from a prompt, so it does not depend on the model having read an instruction. The message names the permitted set, so the agent could correct itself without a round trip to a human, and it did. And the same model, on the same question, sent the invented value on roughly half its attempts, which is the argument for putting the constraint in the contract rather than in the instructions: the failure is intermittent, so testing would not reliably catch it.
+
 ### User scoping, and how it fails closed
 
 An entity declaring `aclFieldMappings` is deny-by-default. An agent key carries `accessTags`, mapping the declared tag to the values that key may see, and `npm run provision` mints one scoped to a single customer.
