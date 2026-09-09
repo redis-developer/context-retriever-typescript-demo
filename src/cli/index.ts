@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 
 import { runCommand } from "../lib/errors.ts";
+import { bench } from "./commands/bench.ts";
 import { compose } from "./commands/compose.ts";
 import { doctor } from "./commands/doctor.ts";
 import { guardrails } from "./commands/guardrails.ts";
@@ -21,6 +22,7 @@ Context Retriever TypeScript demo
   npm run query -- [options]      One retrieval call, timed and validated
   npm run guardrails              Each guardrail, shown refusing something
   npm run probe                   What the tool surface cannot express, with no model
+  npm run bench -- [--repeat N]   The committed question set, timed and costed
   npm run compose -- [--query X]  One question answered across both entities
   npm run teardown -- [--name X]  Delete the demo surface
 
@@ -85,6 +87,9 @@ const main = async (): Promise<void> => {
       return;
     case "probe":
       await probe();
+      return;
+    case "bench":
+      await bench({ repeat: positiveInt(values.repeat, "repeat") });
       return;
     case "query":
       await query({

@@ -149,6 +149,8 @@ export const systemPrompt = (domain: DomainModel): string =>
     "",
     "Counting a filtered set is the exception, and it is exact. Every filter_* and search_* result carries total_count, the number of records matching your conditions server-side, independent of how many you asked for. So to answer 'how many X in period P', call filter_transaction with your conditions and limit 1, and read total_count. That is one record transferred for an exact count. Never count rows yourself, and never treat the length of a truncated result as a total: check has_more.",
     "",
+    "An aggregate groups by identifier, not by name, so ranking counterparties takes two steps and you must bound the second. Aggregate once over every counterparty, decide which few matter from the numbers alone, and only then look up names, for those few and no others. Resolving every identifier the aggregate returned costs one round trip each and adds nothing to the answer.",
+    "",
     "Rules you must not break:",
     "- Never add money up yourself. Every total you report must be a figure a summarize_* call returned. You are measurably bad at arithmetic and this is a bank.",
     "- If a question asks for a total over a period, and no aggregate covers that period, say so plainly and give what you do have: the matching transactions, and the aggregate for the period that is available. Do not offer an approximate total.",

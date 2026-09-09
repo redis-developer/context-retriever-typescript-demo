@@ -12,7 +12,7 @@ Retrieval is scoped, measured and constrained rather than merely working:
 
 - Latency, measured client-side rather than claimed. Median 3.2 ms and 95th percentile 5.6 ms over 30 calls of a ten-row scoped filter, against a locally running service. Your figures will differ; the point is that `npm run query -- --repeat 30` prints yours.
 - Five guardrails, each shown refusing something rather than asserted. Two are enforced by the schema, one by the service, and two are the caller's job. That last group is the one worth knowing about.
-- Token cost. Aggregations answer "how much" and "how many" without returning rows. The agent reports its own token and model-call counts per question.
+- Token cost. Aggregations answer "how much" and "how many" without returning rows. The agent reports its own token and model-call counts per question, and `npm run bench` runs a committed question set and reports them per question and in aggregate.
 
 ## Requirements
 
@@ -49,6 +49,7 @@ npm run guardrails  # each guardrail, shown refusing something
 npm run probe       # what the tool surface cannot express, with no model involved
 npm run compose     # one question answered across both entities
 npm run agent       # a web interface on http://localhost:3100
+npm run bench       # the committed question set, timed and costed (calls a live model)
 ```
 
 `probe` is the one to run if you have time for only one. Everything else here shows the system doing something; `probe` shows what it cannot do, and it calls no model, so the result is a property of the deployment rather than a sample of one model's behaviour on the day. It separates the reads no tool can express from the rules that live in a sentence of the system prompt, because both look identical in a transcript and only one of them survives a model upgrade. It exits non-zero if the surface turns out to expose a read it expected to be foreclosed.
@@ -161,6 +162,16 @@ Internal tools exist because the generated tools cannot answer who is signed in 
 - `dataset_overview` reports record counts per entity.
 
 **The demo authenticates nobody.** The signed-in customer comes from configuration. In production that value comes from a validated token, and the shape of the code is the same.
+
+### What a turn actually costs
+
+`npm run bench -- --repeat 3` runs the seven committed questions in `src/agent/questions.ts` and reports tokens, model calls, retrieval calls and latency for each. Two of the seven are questions this surface cannot answer, because a benchmark of only the flattering cases reports a figure nobody will reproduce.
+
+The headline is not the one we expected. Measured over 21 turns on a locally running service, retrieval took a median of 11.5 ms per call while a whole turn took a median of 10.31 seconds, so **retrieval is around a tenth of one per cent of the time a question takes.** The model is the entire latency budget. That is worth stating plainly rather than burying: the useful claim is not that retrieval is fast enough, it is that retrieval never becomes the thing you have to optimise.
+
+The same measurement undercuts a distinction this command was built to draw. The first turn of a process pays for the MCP connection and the first tool discovery, and it is measurably more expensive — 11.21 s against a 10.23 s median for every turn after it — but the premium is a fraction of the model's own variance, so it does not matter in practice. It would matter to a deployment that opened a session per request, which is the mistake `src/data-plane/session.ts` exists to avoid.
+
+Run it with `--repeat 3` or more before quoting anything from it. The command reports which questions took a different number of retrieval calls across repeats, and on most runs two or three of the seven do. A single run of a model-driven question set is a sample of one.
 
 ## Known limitations
 

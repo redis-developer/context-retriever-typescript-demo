@@ -25,7 +25,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "guardrails": "node src/cli/index.ts guardrails",
-    "probe": "node src/cli/index.ts probe"
+    "probe": "node src/cli/index.ts probe",
+    "bench": "node src/cli/index.ts bench"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.60",

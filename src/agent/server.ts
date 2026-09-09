@@ -2,16 +2,11 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, stepCountIs } from "ai";
-
-import { agentConfig, dataPlaneConfig, demoConfig } from "../config/env.ts";
+import { dataPlaneConfig, demoConfig } from "../config/env.ts";
 import { resolveDomain } from "../domain/index.ts";
 import { SurfaceSession } from "../data-plane/session.ts";
-import { countRecords } from "../seed/seed.ts";
-import { redisConfig } from "../config/env.ts";
 import { formatMs, reportError } from "../lib/errors.ts";
-import { buildToolSet, systemPrompt, type ToolTrace } from "./bridge.ts";
+import { createAsk } from "./ask.ts";
 
 /**
  * A small HTTP server behind a single-file interface.
@@ -26,78 +21,13 @@ import { buildToolSet, systemPrompt, type ToolTrace } from "./bridge.ts";
 const demo = demoConfig();
 const domain = resolveDomain(demo.domain);
 const { mcpUrl, agentApiKey } = dataPlaneConfig();
-const { openaiApiKey } = agentConfig();
-
 const session = new SurfaceSession({ mcpUrl, agentApiKey });
-const openai = createOpenAI({ apiKey: openaiApiKey });
+const ask = createAsk({ session, domain });
 
 const indexHtml = await readFile(
   fileURLToPath(new URL("./web/index.html", import.meta.url)),
   "utf8",
 );
-
-interface AskResult {
-  readonly answer: string;
-  readonly traces: readonly ToolTrace[];
-  readonly usage: {
-    readonly inputTokens: number | undefined;
-    readonly outputTokens: number | undefined;
-    readonly totalTokens: number | undefined;
-    readonly modelCalls: number;
-  };
-  readonly wallMs: number;
-  readonly model: string;
-}
-
-const ask = async (question: string): Promise<AskResult> => {
-  const traces: ToolTrace[] = [];
-  const tools = await buildToolSet({
-    session,
-    domain,
-    context: {
-      customer: { customerId: demo.customerId, name: demo.customerName },
-      countRecords: () => countRecords(domain, redisConfig().url),
-    },
-    onTrace: trace => traces.push(trace),
-  });
-
-  const started = performance.now();
-  const result = await generateText({
-    model: openai(demo.chatModel),
-    system: systemPrompt(domain),
-    prompt: question,
-    tools,
-    // The agent needs several turns: identity, then a clock, then retrieval,
-    // then an answer. Bounded so a confused loop terminates.
-    stopWhen: stepCountIs(10),
-    // The current OpenAI models reason by default, and the default effort buys
-    // deliberation this agent does not need: the hard part is choosing among
-    // sixteen tools, not thinking about the answer. Low keeps the model
-    // planning across tool calls while holding the turn short, which matters
-    // because latency is one of the things this repository is measuring.
-    // Not `none`, which is documented as being for tasks without multi-chained
-    // tool calls, and measurably behaves that way here: on `none` the agent
-    // stopped chaining and answered "I cannot narrow that" to a question it
-    // answers correctly on `low`.
-    providerOptions: { openai: { reasoningEffort: "low" } },
-  });
-
-  return {
-    answer: result.text,
-    traces,
-    usage: {
-      // `usage` aggregates across every step, which is what a per-question
-      // figure has to be: a single tool-using answer costs several model calls
-      // and the tool schemas are re-sent on each one.
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      totalTokens: result.usage.totalTokens,
-      modelCalls: result.steps.length,
-    },
-    wallMs: performance.now() - started,
-    model: demo.chatModel,
-  };
-};
 
 const server = createServer((request, response) => {
   const send = (status: number, type: string, body: string): void => {
