@@ -1,6 +1,6 @@
 import { describe as group, expect, it } from "vitest";
 
-import { FORECLOSED, describe } from "../src/cli/commands/probe.ts";
+import { FORECLOSED, describeTool } from "../src/data-plane/foreclosure.ts";
 
 /**
  * Tests for the capability probe's detection, not for its prose.
@@ -34,7 +34,7 @@ const WELL_SCOPED = [
   }),
   tool("count_transaction", { function: { type: "string", enum: ["count"] } }),
   tool("get_transaction_by_id", { id: { type: "string" } }),
-].map(describe);
+].map(describeTool);
 
 const foreclosureFor = (read: string) => {
   const found = FORECLOSED.find(entry => entry.read.startsWith(read));
@@ -52,7 +52,7 @@ group("the capability probe", () => {
   it("catches an aggregate that accepts conditions", () => {
     const surface = [
       ...WELL_SCOPED,
-      describe(
+      describeTool(
         tool("summarize_transaction_scoped", {
           field: { type: "string" },
           function: { type: "string" },
@@ -67,7 +67,7 @@ group("the capability probe", () => {
 
   it("catches a group_by that takes a list of fields", () => {
     const surface = [
-      describe(
+      describeTool(
         tool("summarize_transaction", { group_by: { type: "array", items: { type: "string" } } }),
       ),
     ];
@@ -79,7 +79,7 @@ group("the capability probe", () => {
   it("catches a mutation tool on the data plane", () => {
     const surface = [
       ...WELL_SCOPED,
-      describe(tool("delete_transaction", { id: { type: "string" } })),
+      describeTool(tool("delete_transaction", { id: { type: "string" } })),
     ];
     expect(foreclosureFor("Write, amend or delete").expressibleBy(surface)).toEqual([
       "delete_transaction",
@@ -89,7 +89,7 @@ group("the capability probe", () => {
   it("catches a tool that accepts raw query syntax", () => {
     const surface = [
       ...WELL_SCOPED,
-      describe(tool("search_raw", { query_string: { type: "string" } })),
+      describeTool(tool("search_raw", { query_string: { type: "string" } })),
     ];
     expect(foreclosureFor("Run arbitrary Redis commands").expressibleBy(surface)).toEqual([
       "search_raw",
@@ -97,14 +97,14 @@ group("the capability probe", () => {
   });
 
   it("treats a tool with no schema as expressing nothing", () => {
-    const surface = [describe({ name: "mystery", inputSchema: undefined })];
+    const surface = [describeTool({ name: "mystery", inputSchema: undefined })];
     for (const foreclosure of FORECLOSED) {
       expect(foreclosure.expressibleBy(surface), foreclosure.read).toEqual([]);
     }
   });
 
   it("records that an open schema accepts unknown arguments", () => {
-    const open = describe({ name: "open", inputSchema: { type: "object", properties: {} } });
+    const open = describeTool({ name: "open", inputSchema: { type: "object", properties: {} } });
     expect(open.additionalProperties).toBe(true);
     expect(WELL_SCOPED.every(entry => !entry.additionalProperties)).toBe(true);
   });

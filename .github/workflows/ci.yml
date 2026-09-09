@@ -22,5 +22,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
-      # No live deployment in CI. Tests that need one skip themselves.
+      # No live deployment in CI, and none is needed: no test reaches a
+      # service, a credential or the network.
       - run: npm test

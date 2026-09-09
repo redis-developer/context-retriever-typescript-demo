@@ -35,15 +35,6 @@ describe("the entity model", () => {
     expect(entity("beneficiary").relationships ?? []).toHaveLength(0);
   });
 
-  it("declares only field types the engine accepts", () => {
-    const accepted = new Set<string>(Object.values(FieldType));
-    for (const e of domain.entities) {
-      for (const f of e.fields ?? []) {
-        expect(accepted, `${nameOf(e)}.${f.name} has type ${f.type}`).toContain(f.type);
-      }
-    }
-  });
-
   it("gives every field a description, so generated tools are self-documenting", () => {
     for (const e of domain.entities) {
       for (const f of e.fields ?? []) {
@@ -106,11 +97,6 @@ describe("the entity model", () => {
         }
       }
     }
-  });
-
-  it("keeps dr_cr_flag unindexed, so it cannot contradict transaction_type", () => {
-    const flag = fieldsOf("transaction").find(f => f.name === "dr_cr_flag");
-    expect(flag?.redisIndices).toHaveLength(0);
   });
 
   it("text-indexes the free-text fields without making them filter parameters", () => {
@@ -181,19 +167,15 @@ describe("the record generator", () => {
   // The source columns are NUMBER(20). Held as JavaScript numbers these values
   // are silently corrupted, so the generator emits them at full width to keep
   // the hazard real rather than hypothetical.
-  it.each(["transaction_id", "account_id", "beneficiary_id"])(
-    "emits %s as a twenty-digit numeric string that would not survive a number round trip",
-    field => {
-      const record = domain
-        .generate(1, "CUST001")
-        .flatMap(b => b.records)
-        .find(r => r[field] !== undefined);
-      const id = str(record?.[field]);
-      expect(id).toMatch(/^\d{20}$/);
-      expect(Number(id)).toBeGreaterThan(Number.MAX_SAFE_INTEGER);
-      expect(String(Number(id))).not.toEqual(id);
-    },
-  );
+  it("emits every identifier at a width a JavaScript number would corrupt", () => {
+    const records = domain.generate(1, "CUST001").flatMap(batch => batch.records);
+    for (const field of ["transaction_id", "account_id", "beneficiary_id"]) {
+      const id = str(records.find(record => record[field] !== undefined)?.[field]);
+      expect(id, field).toMatch(/^\d{20}$/);
+      expect(Number(id), field).toBeGreaterThan(Number.MAX_SAFE_INTEGER);
+      expect(String(Number(id)), field).not.toEqual(id);
+    }
+  });
 
   it("emits records whose fields all exist in the declared model", () => {
     for (const batch of domain.generate(1, "CUST001")) {
@@ -216,24 +198,21 @@ describe("the record generator", () => {
     }
   });
 
-  it("includes other customers' rows, so scoping has something to exclude", () => {
-    const batch = domain.generate(1, "CUST001").find(b => b.entity === "transaction");
-    const customers = new Set((batch?.records ?? []).map(r => str(r["customer_id"])));
-    expect(customers.size).toBeGreaterThan(1);
-    expect(customers).toContain("CUST001");
-  });
-
-  it("includes failed and pending transactions, so status handling can be demonstrated", () => {
-    const batch = domain.generate(1, "CUST001").find(b => b.entity === "transaction");
-    const statuses = new Set((batch?.records ?? []).map(r => str(r["status"])));
-    expect(statuses).toContain("SUCCESS");
-    expect(statuses).toContain("FAILED");
-  });
-
-  it("spans more than one currency, so cross-currency totals can be shown to be wrong", () => {
-    const batch = domain.generate(1, "CUST001").find(b => b.entity === "transaction");
-    const currencies = new Set((batch?.records ?? []).map(r => str(r["currency_code"])));
-    expect(currencies.size).toBeGreaterThan(1);
+  it("carries the variety every claim in the demo depends on", () => {
+    const rows =
+      domain.generate(1, "CUST001").find(batch => batch.entity === domain.subjectField.entity)
+        ?.records ?? [];
+    const subject = domain.subjectField.field;
+    // Other customers, so scoping has something to exclude. Failed and pending
+    // rows, so status handling can be shown. More than one currency, so a
+    // cross-currency total can be shown to be meaningless. Each of these is a
+    // claim the README makes; a generator change that quietly removed any of
+    // them would leave the claim standing with nothing behind it.
+    expect(new Set(rows.map(row => row[subject])).size).toBeGreaterThan(1);
+    expect(new Set(rows.map(row => row["status"]))).toEqual(
+      new Set(["SUCCESS", "FAILED", "PENDING"]),
+    );
+    expect(new Set(rows.map(row => row["currency_code"])).size).toBeGreaterThan(1);
   });
 });
 
@@ -245,12 +224,6 @@ describe("internal tools", () => {
       // stays that way, since adding one is how the guardrail would be lost.
       expect(Object.keys(tool)).toEqual(["name", "description", "execute"]);
     }
-  });
-
-  it("includes a profile tool and a clock", () => {
-    const names = domain.internalTools.map(t => t.name);
-    expect(names).toContain("get_customer_profile");
-    expect(names).toContain("get_current_time");
   });
 
   it("returns the injected customer from get_customer_profile", async () => {

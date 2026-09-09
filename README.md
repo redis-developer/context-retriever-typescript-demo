@@ -187,10 +187,12 @@ Run it with `--repeat 3` or more before quoting anything from it. The command re
 ## Development
 
 ```bash
-npm run typecheck && npm run lint && npm test
+npm run typecheck && npm run lint && npm run format:check && npm test
 ```
 
-All three pass on a clean checkout with nothing configured, so reviewing this repository costs nothing. Tests that would need a live deployment skip themselves and say why.
+All four pass on a clean checkout with nothing configured, so reviewing this repository costs nothing. That is a property worth keeping rather than a happy accident: no test reaches a service, a credential or the network, and the Vitest config sets `DEMO_SKIP_DOTENV` so the suite behaves the same on a configured machine as on a fresh clone. Anything that needs a live deployment is a command under `npm run`, not a test.
+
+The four are what CI runs, in that order, so a first contribution that passes locally passes there too.
 
 The compiler options are stricter than usual on purpose, and two are load-bearing. `noUncheckedIndexedAccess` and `noPropertyAccessFromIndexSignature` match the SDK's own repository, so its snippets paste in unchanged. `erasableSyntaxOnly` rejects syntax Node cannot strip, which is what makes running TypeScript without a transpiler safe.
 

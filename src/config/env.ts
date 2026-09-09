@@ -1,8 +1,6 @@
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
-loadDotenv({ quiet: true });
-
 /**
  * Environment configuration, validated once and reported completely.
  *
@@ -54,7 +52,29 @@ const describeFailure = (error: z.ZodError, group: string): Error => {
   );
 };
 
+/**
+ * Loads `.env` once, on first use rather than on import.
+ *
+ * Importing this module used to read `.env` as a side effect, which meant the
+ * unit tests loaded the developer's real credentials into `process.env` merely
+ * by importing something that transitively reached here. Nothing asserted on
+ * them, so it passed either way, but a test suite that behaves differently on a
+ * machine with a `.env` is not the zero-configuration suite this repository
+ * claims to have.
+ */
+let loaded = false;
+const loadOnce = (): void => {
+  if (loaded) return;
+  loaded = true;
+  // Set by the Vitest config. The tests assert on what happens when a variable
+  // is absent, which a `.env` on the developer's machine would otherwise
+  // silently supply.
+  if (process.env["DEMO_SKIP_DOTENV"] === "1") return;
+  loadDotenv({ quiet: true });
+};
+
 const parse = <T extends z.ZodType>(schema: T, group: string): z.output<T> => {
+  loadOnce();
   const result = schema.safeParse(process.env);
   if (!result.success) throw describeFailure(result.error, group);
   return result.data;
