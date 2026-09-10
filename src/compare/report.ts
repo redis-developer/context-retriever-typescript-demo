@@ -227,8 +227,9 @@ const accuracy = (comparison: Comparison): readonly string[] => [
   ),
   "",
   "  Fixtures over known generated values, scored identically for both arms.",
-  "  Reported rather than headlined: the internal benchmark found no significant",
-  "  difference on correctness, and this is too small a set to find one either.",
+  "  Reported rather than headlined: a question set this size cannot separate two",
+  "  approaches on correctness, so read a difference here as neither arm being",
+  "  obviously wrong on this data rather than as a result.",
   "",
   ...comparison.summaries.map(
     one =>

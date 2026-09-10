@@ -258,7 +258,7 @@ Two things follow from taking that seriously. "Spend" is defined in the shared b
 
 ### What it measures
 
-Governance and cost lead. Accuracy is reported and does not lead, because Redis's own benchmark found no significant difference between the two approaches on correctness, so a headline resting on it would not survive contact with someone who has the numbers. It is still reported: a comparison that omits it invites the question, and without it an arm that answered "I cannot determine that" to everything would win every other column.
+Governance and cost lead. Accuracy is reported and does not lead: eight questions cannot separate two approaches on correctness, and a headline resting on a sample this size would not survive anyone re-running it. It is still reported, for two reasons. A comparison that omits correctness invites the question, and answering with a figure beats answering with a paragraph. And without it, an arm that answered "I cannot determine that" to everything would win every other column at once.
 
 The governance verdict on each generated statement is `scoped`, `unscoped` or `cannot tell`. The third is not a hedge and is never folded into either of the others. `src/compare/judge.ts` recognises one predicate form, a single-quoted equality against the declared subject column, and declines everything else, so an `IN` list, a bind parameter or an `OR` chain lands in `cannot tell` by design and the report prints how much it would not vouch for.
 
@@ -273,11 +273,26 @@ Doubt resolves in the baseline's favour throughout. A statement reading only tab
 
 ### What it found
 
-The interesting result is not the one the pitch expects, so here it is plainly. **This surface makes far fewer model calls and still spends more input tokens.** The cause is a fixed premium: its sixteen generated tools serialise to roughly 6,800 estimated tokens of schema, re-sent on every model call whether a tool is used or not, against roughly 430 for four hand-written ones. The baseline's cost is per extra call; this one's is per call. Fewer round trips did not mean fewer tokens.
+Measured over 48 turns: eight questions, three repeats, both arms, against a locally running engine and a local Postgres so neither side pays for distance.
+
+|                                                | this surface | text-to-SQL |
+| ---------------------------------------------- | ------------ | ----------- |
+| input tokens, estimated                        | 455,111      | 273,667     |
+| model calls                                    | 75           | 171         |
+| turn, median                                   | 9,765 ms     | 13,767 ms   |
+| questions taking one path in all three repeats | 5 of 8       | 0 of 8      |
+
+Two findings, and the first is not the one the pitch expects. **This surface makes less than half the model calls and still spends 1.7 times the input tokens.** The cause is a fixed premium: sixteen generated tools serialise to roughly 6,800 estimated tokens of schema, re-sent on every model call whether a tool is used or not, against roughly 430 for four hand-written ones. The baseline's cost grows with calls; this one's is charged per call regardless. Fewer round trips did not mean fewer tokens.
 
 That makes index curation the lever, which is where the tool surface section arrives from the other direction: only tag- and numeric-indexed fields become filter parameters, and every indexed field's description is folded into a tool description re-sent every turn.
 
-Token figures are estimated at four characters per token, applied the same way to both arms, so read the two against each other rather than either against its own provider total. The report prints what share of each arm's measured input tokens the estimate accounts for, which is how far to trust it. Above 100% the rule is over-counting, which it does on schema text.
+The second finding is stability. No question took the same statement set on all three repeats, and three took a different one each time. The governed path varied on three of eight. Both arms are model-driven and neither is deterministic, but the spread is much wider when the model is composing SQL, which is why the report prints a denominator against every governance figure.
+
+On governance, this run is clean, and a clean run is not a clean bill. All 24 statements the baseline wrote were scoped to the signed-in customer, and it declined both out-of-scope questions rather than querying them. An earlier single run of the same command, against the same code and the same records, had it read another customer's rows on one of those questions. Whether a model-mediated guardrail holds is a property of the day, which is why every governance figure in the report carries how many repeats produced it, and why one repeat is not worth quoting.
+
+Accuracy came out 14 of 15 against 11 of 15 on the turns with a known answer. Fifteen scored turns is far too few to separate two approaches, so read that as neither arm being obviously wrong on this data rather than as a result. Do not build an argument on it.
+
+Where the baseline pays most is where the question is hardest. On the one question this surface cannot express, a filtered total over a date range, it declined for 17,143 tokens while the baseline answered for 23,712 across twelve model calls. That is the honest shape of the trade: the baseline can express more, and it spends more finding out how.
 
 ## Known limitations
 

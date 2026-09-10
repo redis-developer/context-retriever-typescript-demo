@@ -27,7 +27,7 @@ const judge = (sql: string) => judgeStatement(sql, CALLER, SCHEMA);
 group("the three statements a substring check passes", () => {
   // Each of these contains the string "customer_id" and each reads every
   // customer's rows. A check that looked for the column name would clear all
-  // three, which is how the reference implementation's first judge passed a
+  // three, which is how a substring check quietly passes a
   // cross-tenant aggregate.
 
   it("refuses a GROUP BY on the subject column", () => {

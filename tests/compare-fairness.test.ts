@@ -41,9 +41,10 @@ group("the two prompts", () => {
   });
 
   it("both define the contested term, so a disagreement is not scored as an error", () => {
-    // "Spend" has two defensible readings and they give different numbers. The
-    // reference implementation scored a semantic disagreement as a correctness
-    // failure until it pinned this.
+    // "Spend" has two defensible readings and they give different numbers.
+    // Left undefined, one arm answers one and the other answers the other, and
+    // the disagreement scores as a correctness failure against whichever chose
+    // differently.
     for (const brief of [GOVERNED_TOOL_BRIEF, SQL_TOOL_BRIEF]) {
       expect(promptFor(brief)).toContain("mean the gross sum of every transaction amount");
     }

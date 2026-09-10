@@ -223,8 +223,9 @@ export const sqlArm = (options: {
                 ms: performance.now() - started,
                 ok: true,
                 // The driver's own count, never a count of separators in a
-                // stringified result. The reference implementation inferred it
-                // from text and its own notes record the figure as unreliable.
+                // stringified result. Counting separators is the obvious
+                // approach and it is unreliable: it depends on how the driver
+                // chose to render a row rather than on how many there were.
                 rows: result.rowCount,
                 sql: args.query,
               });

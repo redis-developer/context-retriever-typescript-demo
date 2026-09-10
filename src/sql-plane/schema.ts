@@ -224,7 +224,7 @@ export const buildDdl = (table: WideTable): string =>
  * The role the SQL arm connects as.
  *
  * `SELECT` on everything, and nothing else. This is the realistic default and
- * the reference implementation's choice: it keeps the demo from being able to
+ * the realistic choice: it keeps the demo from being able to
  * damage anything, and it deliberately does not narrow what the agent can
  * read, because what the agent can read is the thing being measured. A
  * read-only role is also not a defence against a full scan, which is why the

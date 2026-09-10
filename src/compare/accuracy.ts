@@ -3,15 +3,13 @@ import type { Fixture } from "./scenarios.ts";
 /**
  * Scoring an answer against a known-answer fixture.
  *
- * Accuracy is measured and reported, and it does not lead. Redis's own
- * benchmark found no significant difference between a governed surface and a
- * text-to-SQL baseline on correctness, and the reference implementation of
- * this comparison stopped claiming it for the same reason. Two things still
- * make it worth reporting. A comparison that omits correctness invites the
- * question, and answering it with a figure is better than answering it with a
- * paragraph. And without it, an arm that answered "I cannot determine that" to
- * every question would win on tokens, model calls, latency and governance
- * simultaneously.
+ * Accuracy is measured and reported, and it does not lead. A question set this
+ * size cannot separate two approaches on correctness, so a headline resting on
+ * it would not survive anyone re-running the command. Two things still make it
+ * worth reporting. A comparison that omits correctness invites the question,
+ * and answering with a figure beats answering with a paragraph. And without
+ * it, an arm that answered "I cannot determine that" to every question would
+ * win on tokens, model calls, latency and governance simultaneously.
  *
  * Both arms are scored by this one function, and half the scenarios carry no
  * fixture, so the denominator is the scenarios that have one.
