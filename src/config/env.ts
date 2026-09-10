@@ -29,6 +29,10 @@ const PURPOSE: Readonly<Record<string, string>> = {
   DEMO_DATA_SOURCE_ADDR:
     "host:port of the data Redis as the Context Retriever *service* resolves it, which in a container deployment is not the address you use. For the local stack this is redis-data:6379.",
   OPENAI_API_KEY: "An OpenAI API key, used only by the agent for chat completion.",
+  DEMO_PG_ADMIN_URL:
+    "Connection URL for the Postgres holding the SQL baseline's copy of the records, as a role that may create a role and a table. Used only by `npm run sql:seed`. The bundled compose file exposes it on postgresql://demo:demo@localhost:5433/demo.",
+  DEMO_PG_READER_URL:
+    "Connection URL the SQL baseline itself connects as, which must be a role holding SELECT and nothing else. `npm run sql:seed` creates that role.",
 };
 
 const nonEmpty = z.string().trim().min(1);
@@ -188,6 +192,38 @@ export const redisConfig = (): { url: string } => ({
   url: parse(redisSchema, "seeding").DEMO_REDIS_URL,
 });
 
+/**
+ * Postgres, for the text-to-SQL baseline.
+ *
+ * Two URLs for what looks like one value, for the same reason `DEMO_REDIS_URL`
+ * and `DEMO_DATA_SOURCE_ADDR` are separate: the privileges needed to create a
+ * table are not the privileges the thing under measurement should hold. The
+ * loader creates the schema and the reader role; the arm connects as that role
+ * and can do nothing else. Pointing both at the same URL would quietly hand
+ * the baseline write access and make its read-only claim untrue.
+ */
+const sqlSchema = z.object({
+  DEMO_PG_ADMIN_URL: nonEmpty,
+  DEMO_PG_READER_URL: nonEmpty,
+  // A read-only role does not protect availability: an unbounded scan of a
+  // production table is a read. The timeout is what bounds it, so it is
+  // configurable and disclosed rather than hidden in the client.
+  DEMO_PG_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+});
+
+export const sqlConfig = (): {
+  adminUrl: string;
+  readerUrl: string;
+  statementTimeoutMs: number;
+} => {
+  const parsed = parse(sqlSchema, "the SQL baseline");
+  return {
+    adminUrl: parsed.DEMO_PG_ADMIN_URL,
+    readerUrl: parsed.DEMO_PG_READER_URL,
+    statementTimeoutMs: parsed.DEMO_PG_STATEMENT_TIMEOUT_MS,
+  };
+};
+
 /** The chat model. Only the agent needs this. */
 const agentSchema = z.object({ OPENAI_API_KEY: nonEmpty });
 
@@ -211,5 +247,6 @@ export const configuredGroups = (): Readonly<Record<string, boolean>> => {
     "data plane": ok(dataPlaneConfig),
     seeding: ok(redisConfig),
     agent: ok(agentConfig),
+    "sql baseline": ok(sqlConfig),
   };
 };

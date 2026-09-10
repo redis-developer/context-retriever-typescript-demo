@@ -9,6 +9,7 @@ import { probe } from "./commands/probe.ts";
 import { provision } from "./commands/provision.ts";
 import { query } from "./commands/query.ts";
 import { seed } from "./commands/seed.ts";
+import { sqlSeed } from "./commands/sql-seed.ts";
 import { teardown } from "./commands/teardown.ts";
 import { tools } from "./commands/tools.ts";
 
@@ -24,6 +25,7 @@ Context Retriever TypeScript demo
   npm run probe                   What the tool surface cannot express, with no model
   npm run bench -- [--repeat N]   The committed question set, timed and costed
   npm run compose -- [--query X]  One question answered across both entities
+  npm run sql:seed                Load the SQL baseline's copy into Postgres
   npm run teardown -- [--name X]  Delete the demo surface
 
 tools options
@@ -102,6 +104,9 @@ const main = async (): Promise<void> => {
         repeat: positiveInt(values.repeat, "repeat"),
         limit: positiveInt(values.limit, "limit"),
       });
+      return;
+    case "sql:seed":
+      await sqlSeed();
       return;
     case "compose":
       // A term that matches several counterparties, so the composition has

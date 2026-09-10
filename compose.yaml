@@ -1,0 +1,35 @@
+# Postgres for the text-to-SQL baseline, and nothing else.
+#
+# Only the comparison needs this. The rest of the repository talks to Redis and
+# to the Context Retriever service, so `docker compose up` is not a prerequisite
+# for anything in the README's setup path.
+#
+# The published port is 5433 rather than 5432 for the same reason the agent
+# defaults to port 3100 rather than 3000: the obvious default collides with
+# whatever the reader is already running, and a demo that fails on a port
+# conflict fails before it says anything.
+#
+# There is no init SQL here. The schema, the reader role and its grants are
+# created by `npm run sql:seed` from src/sql-plane/schema.ts, so the column
+# types sit in reviewable TypeScript beside the entity model they are derived
+# from and cannot drift away from it.
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: context-retriever-demo-postgres
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: demo
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo -d demo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
