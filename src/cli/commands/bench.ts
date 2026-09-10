@@ -175,10 +175,10 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
         const counts = [...new Set(runs.map(one => one.retrievalCalls))].sort(
           (left, right) => left - right,
         );
+        console.log(`  varied   ${question.question}`);
         console.log(
-          `  varied   ${question.question}`,
-          `\n           most common plan on ${String(modal)} of ${String(repeats)} repeat(s),`,
-          `taking ${counts.join(" or ")} retrieval call(s)`,
+          `           most common plan on ${String(modal)} of ${String(repeats)} repeat(s), ` +
+            `taking ${counts.join(" or ")} retrieval call(s)`,
         );
       }
       if (unstable === 0) {
