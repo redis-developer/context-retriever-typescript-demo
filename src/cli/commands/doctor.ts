@@ -6,9 +6,14 @@ import {
   dataPlaneConfig,
   demoConfig,
   redisConfig,
+  sqlConfig,
 } from "../../config/env.ts";
 import { resolveDomain } from "../../domain/index.ts";
 import { formatMs, timed } from "../../lib/errors.ts";
+import { fingerprintOf } from "../../compare/parity.ts";
+import { createReader } from "../../sql-plane/client.ts";
+import { storedFingerprint } from "../../sql-plane/load.ts";
+import { wideTableOf } from "../../sql-plane/schema.ts";
 
 /**
  * Establishes what is reachable, and distinguishes the three ways it can fail.
@@ -136,4 +141,48 @@ export const doctor = async (): Promise<void> => {
     `  ${tick(groups["agent"] ?? false)}  OPENAI_API_KEY ${groups["agent"] ? "set" : "not set"}`,
   );
   console.log("  note: no embedding provider is needed; no entity carries a vector");
+  console.log("");
+
+  console.log("sql baseline");
+  if (!groups["sql baseline"]) {
+    console.log("  skipped, not configured. Only `npm run compare` needs it:");
+    console.log("    docker compose up -d && npm run sql:seed");
+  } else {
+    const sql = sqlConfig();
+    console.log(`  statement timeout  ${String(sql.statementTimeoutMs)} ms`);
+    const reader = createReader({ url: sql.readerUrl, statementTimeoutMs: sql.statementTimeoutMs });
+    try {
+      const table = wideTableOf(domain);
+      const { result, ms } = await timed(() =>
+        reader.run(`SELECT count(*)::int AS n FROM ${table.name}`),
+      );
+      const rows = result.rows[0]?.["n"];
+      console.log(
+        `  ${tick(true)}  reader role accepted, ${String(rows)} row(s) in ${table.name} ` +
+          `(${formatMs(ms)})`,
+      );
+
+      // Asserted by attempting it, not by reading the grants. A role that
+      // turned out to hold a write grant would make the baseline's read-only
+      // claim untrue while every command still worked.
+      try {
+        await reader.run(`DELETE FROM ${table.name} WHERE false`);
+        console.log(`  ${tick(false)}  the reader role accepted a DELETE. It is not read-only.`);
+      } catch {
+        console.log(`  ${tick(true)}  reader role refuses a write`);
+      }
+
+      const expected = fingerprintOf(domain.generate(demo.seed, demo.customerId));
+      const found = await storedFingerprint(sql.adminUrl);
+      console.log(
+        found === expected
+          ? `  ${tick(true)}  records match this domain (${expected})`
+          : `  ${tick(false)}  records do not match: reload with npm run seed and npm run sql:seed`,
+      );
+    } catch (error) {
+      console.log(`  ${tick(false)}  ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      await reader.close();
+    }
+  }
 };
