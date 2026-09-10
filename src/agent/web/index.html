@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Context Retriever demo</title>
+    <style>
+      :root {
+        --ink: #16181d;
+        --muted: #6a7280;
+        --line: #e3e6eb;
+        --accent: #163bd8;
+        --warn: #a3390b;
+        --bg: #fbfbfc;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+      h1 { font-size: 19px; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+      .sub code { background: #eef0f4; padding: 1px 5px; border-radius: 3px; }
+      form { display: flex; gap: 8px; margin-bottom: 10px; }
+      input[type="text"] {
+        flex: 1; padding: 11px 13px; border: 1px solid var(--line);
+        border-radius: 7px; font: inherit; background: #fff;
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      button {
+        padding: 11px 18px; border: 0; border-radius: 7px; background: var(--accent);
+        color: #fff; font: inherit; font-weight: 500; cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 28px; }
+      .examples button {
+        background: #fff; color: var(--accent); border: 1px solid var(--line);
+        font-size: 12.5px; padding: 5px 10px; font-weight: 400;
+      }
+      .turn { border-top: 1px solid var(--line); padding: 20px 0; }
+      .q { font-weight: 600; margin-bottom: 12px; }
+      .a { white-space: pre-wrap; margin-bottom: 14px; }
+      .trace { font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .trace-row { display: flex; gap: 10px; color: var(--muted); }
+      .trace-row .nm { color: var(--ink); }
+      .trace-row .internal { color: var(--warn); }
+      .args { color: var(--muted); overflow-wrap: anywhere; }
+      .meter {
+        display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px;
+        padding-top: 12px; border-top: 1px dashed var(--line);
+        font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted);
+      }
+      .meter b { color: var(--ink); font-weight: 600; }
+      .err { color: var(--warn); }
+      .pending { color: var(--muted); font-style: italic; }
+      footer { margin-top: 36px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 14px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Context Retriever demo</h1>
+      <p class="sub" id="session">loading session…</p>
+
+      <form id="form">
+        <input id="q" type="text" autocomplete="off" placeholder="Ask about your transactions…" />
+        <button id="go" type="submit">Ask</button>
+      </form>
+      <div class="examples" id="examples"></div>
+
+      <div id="turns"></div>
+
+      <footer>
+        Every tool call the agent made is listed with its arguments and duration.
+        Internal tools run locally and supply session facts; retrieval tools are
+        discovered from the surface at runtime. Token counts are for this model
+        and include the tool schemas, which are re-sent on every turn.
+      </footer>
+    </main>
+
+    <script type="module">
+      const $ = id => document.getElementById(id);
+
+      // Declared before its first use, deliberately. `const` is not hoisted, so
+      // placing this below the session line it escapes would throw on load
+      // rather than silently skip escaping, but either way the reader should be
+      // able to see that every interpolation below has one available.
+      // Escapes for text-node context. An attribute context would additionally
+      // need the single quote.
+      const escape = value =>
+        String(value).replace(
+          /[&<>"]/g,
+          c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+      // Chosen for the shapes the surface answers exactly. A total by currency
+      // is one aggregate call; a count over a period is one record, because
+      // filter results carry a server-side total_count. A *filtered total* —
+      // "how much on card payments last month" — has no aggregate behind it,
+      // and the agent will say so rather than add rows up itself. Worth
+      // demonstrating deliberately, but it is a refusal, not an answer.
+      // Ordered for a live demo, and the fourth and fifth belong together in
+      // that order. "How many" is exact and costs one record; "how much" has no
+      // aggregate behind it and is correctly declined. Asked in that order the
+      // pair shows an agent that knows its own contract. Asked the other way
+      // round, the refusal just looks like a missing feature.
+      const EXAMPLES = [
+        "How much have I spent in total, by currency?",
+        "Show me my last 5 transactions",
+        "Which of my payments failed, and why?",
+        "How many card payments did I make last month?",
+        "How much did I spend on card payments last month?",
+        "Who are my most frequent counterparties?",
+      ];
+
+      const session = await fetch("/api/session").then(r => r.json());
+      // Escaped even though all four come from configuration rather than from a
+      // request. The production guidance in the README is that the signed-in
+      // customer stops coming from configuration and arrives on a validated
+      // token, at which point the name is directory data and this line is the
+      // one sink in the file that had forgotten to escape it.
+      $("session").innerHTML =
+        `Signed in as <code>${escape(session.customer.customerId)}</code> ` +
+        `(${escape(session.customer.name)}) · model <code>${escape(session.model)}</code> · ` +
+        `domain <code>${escape(session.domain)}</code>`;
+
+      $("examples").innerHTML = EXAMPLES.map(
+        (text, i) => `<button type="button" data-i="${i}">${escape(text)}</button>`,
+      ).join("");
+      $("examples").addEventListener("click", event => {
+        const i = event.target.dataset?.i;
+        if (i === undefined) return;
+        $("q").value = EXAMPLES[Number(i)];
+        $("form").requestSubmit();
+      });
+
+      const renderTrace = traces =>
+        traces
+          .map(t => {
+            const kind = t.kind === "internal" ? "internal" : "nm";
+            const rows = t.rows === undefined ? "" : ` → ${t.rows} row(s)`;
+            return (
+              `<div class="trace-row"><span class="${kind}">${escape(t.name)}</span>` +
+              `<span>${t.ms.toFixed(1)} ms${rows}${t.ok ? "" : " (refused)"}</span></div>` +
+              `<div class="args">${escape(JSON.stringify(t.args))}</div>` +
+              (t.error === undefined ? "" : `<div class="args">${escape(t.error)}</div>`)
+            );
+          })
+          .join("");
+
+      const ask = async question => {
+        const turn = document.createElement("div");
+        turn.className = "turn";
+        turn.innerHTML = `<div class="q">${escape(question)}</div><div class="pending">thinking…</div>`;
+        $("turns").prepend(turn);
+        $("go").disabled = true;
+
+        try {
+          const res = await fetch("/api/ask", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ question }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? "request failed");
+
+          const u = data.usage;
+          turn.innerHTML =
+            `<div class="q">${escape(question)}</div>` +
+            `<div class="a">${escape(data.answer)}</div>` +
+            `<div class="trace">${renderTrace(data.traces)}</div>` +
+            `<div class="meter">` +
+            `<span>tools <b>${data.traces.length}</b></span>` +
+            `<span>model calls <b>${u.modelCalls}</b></span>` +
+            `<span>tokens in <b>${u.inputTokens ?? "?"}</b></span>` +
+            `<span>out <b>${u.outputTokens ?? "?"}</b></span>` +
+            `<span>total <b>${u.totalTokens ?? "?"}</b></span>` +
+            `<span>wall <b>${data.wallMs.toFixed(0)} ms</b></span>` +
+            `</div>`;
+        } catch (error) {
+          turn.innerHTML =
+            `<div class="q">${escape(question)}</div>` +
+            `<div class="err">${escape(error.message)}</div>`;
+        } finally {
+          $("go").disabled = false;
+        }
+      };
+
+      $("form").addEventListener("submit", event => {
+        event.preventDefault();
+        const question = $("q").value.trim();
+        if (question === "") return;
+        $("q").value = "";
+        void ask(question);
+      });
+    </script>
+  </body>
+</html>

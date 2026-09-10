@@ -1,0 +1,28 @@
+# Local working documents, never committed.
+.local/
+
+# Secrets. The glob matters: an editor's `.env~` or a hand-made `.env.local`
+# holds the same credentials as `.env` and was not covered by matching the bare
+# name, so it showed up as an untracked file ready to be committed.
+.env
+.env.*
+.env~
+!.env.example
+*.tfvars
+!*.tfvars.example
+
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Terraform state
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
