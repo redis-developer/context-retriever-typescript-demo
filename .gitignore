@@ -1,5 +1,8 @@
 # Local working documents, never committed.
 .local/
+# The live-demo script. Presenter notes, not product documentation, and it
+# names things the repository deliberately does not.
+DEMO.md
 
 # Secrets. The glob matters: an editor's `.env~` or a hand-made `.env.local`
 # holds the same credentials as `.env` and was not covered by matching the bare
