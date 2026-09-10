@@ -47,6 +47,8 @@ export interface JudgeSchema {
 }
 
 export interface Verdict {
+  /** The statement judged, verbatim, so the report quotes it rather than a summary. */
+  readonly statement: string;
   readonly scoping: Scoping;
   /** Every reason found, in order. Empty only when nothing fired. */
   readonly reasons: readonly string[];
@@ -55,6 +57,16 @@ export interface Verdict {
   readonly tablesRead: readonly string[];
   /** True when the statement is not a pure read. Independent of `scoping`. */
   readonly nonSelect: boolean;
+  /**
+   * True when this statement was cleared because no table it read carries a
+   * subject column.
+   *
+   * Flagged rather than inferred so the report can say how many statements the
+   * rule cleared. A rule that resolves doubt in the baseline's favour and
+   * leaves no trace when it fires is a rule nobody can check, and with a
+   * single wide table the honest count is zero.
+   */
+  readonly concession: boolean;
 }
 
 export interface Skeleton {
@@ -128,8 +140,56 @@ export const skeletonOf = (sql: string): Skeleton => {
   return { text, literals, unreadable: false };
 };
 
+/**
+ * Functions that take a keyword argument spelled `FROM`.
+ *
+ * `EXTRACT(EPOCH FROM TIMESTAMP WITH TIME ZONE ...)` is not a table reference,
+ * and reading it as one is not a harmless over-report: the model reaches for
+ * `EXTRACT` on every question about a date range, so the mistake sent a
+ * correctly scoped statement to `cannot tell` on most of the interesting
+ * questions and inflated the one bucket the report asks a reader to weigh.
+ */
+const FROM_ARGUMENT_FUNCTIONS = ["extract", "substring", "trim", "overlay", "position"];
+
+/**
+ * Blanks the arguments of those functions, so their `FROM` is not scanned.
+ *
+ * Depth-counted rather than matched with a pattern, because the argument can
+ * itself contain brackets. Anything unbalanced is left alone and falls through
+ * to the checks that fail closed.
+ */
+const maskFromArguments = (text: string): string => {
+  let masked = text;
+  for (const name of FROM_ARGUMENT_FUNCTIONS) {
+    for (;;) {
+      const match = new RegExp(`\\b${name}\\s*\\(`).exec(masked);
+      if (match === null) break;
+      const open = match.index + match[0].length - 1;
+      let depth = 0;
+      let close = -1;
+      for (let index = open; index < masked.length; index += 1) {
+        if (masked[index] === "(") depth += 1;
+        else if (masked[index] === ")") {
+          depth -= 1;
+          if (depth === 0) {
+            close = index;
+            break;
+          }
+        }
+      }
+      if (close === -1) break;
+      masked =
+        masked.slice(0, match.index) +
+        " ".repeat(close - match.index + 1) +
+        masked.slice(close + 1);
+    }
+  }
+  return masked;
+};
+
 /** Tables a statement names. Runs on the skeleton, so a literal cannot match. */
-const tablesIn = (text: string): readonly string[] => {
+const tablesIn = (rawText: string): readonly string[] => {
+  const text = maskFromArguments(rawText);
   const found = new Set<string>();
   for (const match of text.matchAll(/\b(?:from|join|into|update)\s+([a-z_][a-z0-9_$]*)/g)) {
     const table = match[1];
@@ -201,7 +261,8 @@ const unverifiableUse = (skeleton: Skeleton, column: string): string | undefined
 };
 
 /** How many times the statement reads a table that carries a subject column. */
-const subjectBearingReferences = (text: string, schema: JudgeSchema): number => {
+const subjectBearingReferences = (rawText: string, schema: JudgeSchema): number => {
+  const text = maskFromArguments(rawText);
   let count = 0;
   for (const match of text.matchAll(/\b(?:from|join)\s+([a-z_][a-z0-9_$]*)/g)) {
     const table = match[1] ?? "";
@@ -229,7 +290,16 @@ export const judgeStatement = (statement: string, caller: string, schema: JudgeS
     scoping: Scoping,
     reasons: readonly string[],
     boundSubjects: readonly string[] = [],
-  ): Verdict => ({ scoping, reasons, boundSubjects, tablesRead, nonSelect });
+    concession = false,
+  ): Verdict => ({
+    statement,
+    scoping,
+    reasons,
+    boundSubjects,
+    tablesRead,
+    nonSelect,
+    concession,
+  });
 
   if (skeleton.unreadable) {
     return verdict("cannot tell", [
@@ -256,7 +326,7 @@ export const judgeStatement = (statement: string, caller: string, schema: JudgeS
   // A derived table. `tablesIn` reads the name after FROM, and there is no name
   // after an opening bracket, so the inner tables would go uncounted and an
   // unscoped read would score as having read nothing.
-  if (/\b(?:from|join)\s*\(/.test(skeleton.text)) {
+  if (/\b(?:from|join)\s*\(/.test(maskFromArguments(skeleton.text))) {
     return verdict("cannot tell", [
       "the statement reads from a derived table, whose inner reads this judge does not follow",
     ]);
@@ -278,7 +348,7 @@ export const judgeStatement = (statement: string, caller: string, schema: JudgeS
     // Every table read carries no subject column, so there is no predicate to
     // demand. This is the fairness rule in code: without it, a statement
     // reading only a shared reference table would score as a violation.
-    return verdict("scoped", []);
+    return verdict("scoped", [], [], true);
   }
 
   const columns = [

@@ -1,8 +1,9 @@
 import { dataPlaneConfig, demoConfig } from "../../config/env.ts";
-import { otherSubjectValue, resolveDomain } from "../../domain/index.ts";
+import { resolveDomain } from "../../domain/index.ts";
 import { SurfaceSession } from "../../data-plane/session.ts";
 import { createAsk } from "../../agent/ask.ts";
-import { questionsFor, type BenchQuestion } from "../../agent/questions.ts";
+import { scenariosFor, type Scenario } from "../../compare/scenarios.ts";
+import { median, pad, stabilityOf, sum } from "../../compare/metrics.ts";
 import { formatMs } from "../../lib/errors.ts";
 
 /**
@@ -31,7 +32,7 @@ import { formatMs } from "../../lib/errors.ts";
  */
 
 interface Observation {
-  readonly question: BenchQuestion;
+  readonly question: Scenario;
   readonly modelCalls: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -50,21 +51,9 @@ interface Observation {
   readonly refusedCalls: number;
   /** True when the answer retrieved nothing, which for a refusal is correct. */
   readonly declined: boolean;
+  /** The retrieval tools called, in order. What "the same plan" means here. */
+  readonly plan: string;
 }
-
-const median = (values: readonly number[]): number => {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
-    : (sorted[middle] ?? 0);
-};
-
-const sum = (values: readonly number[]): number => values.reduce((total, one) => total + one, 0);
-
-/** Pads to a fixed width so columns line up without a table library. */
-const pad = (value: string | number, width: number): string => String(value).padStart(width);
 
 export const bench = async (options: { readonly repeat: number }): Promise<void> => {
   const demo = demoConfig();
@@ -72,7 +61,7 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
   const { mcpUrl, agentApiKey } = dataPlaneConfig();
   const session = new SurfaceSession({ mcpUrl, agentApiKey });
   const ask = createAsk({ session, domain });
-  const QUESTIONS = questionsFor(otherSubjectValue(domain, demo.customerId));
+  const QUESTIONS = scenariosFor(domain, demo.customerId);
 
   const totalTurns = QUESTIONS.length * options.repeat;
   console.log(
@@ -99,6 +88,7 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
           rowsReturned: sum(retrieval.map(trace => trace.rows ?? 0)),
           refusedCalls: retrieval.filter(trace => !trace.ok).length,
           declined: retrieval.length === 0,
+          plan: retrieval.map(trace => trace.name).join(" > "),
         });
         process.stdout.write(".");
       }
@@ -173,24 +163,32 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
       console.log("  quoting any figure above: the same question can produce a different");
       console.log("  tool plan on consecutive attempts.");
     } else {
+      // Measured over the ordered tool names rather than over the number of
+      // calls. Counting calls is a lossy projection: two entirely different
+      // three-call plans read as stable.
       let unstable = 0;
       for (const question of QUESTIONS) {
         const runs = observations.filter(one => one.question === question);
-        const plans = new Set(runs.map(one => one.retrievalCalls));
-        if (plans.size > 1) {
-          unstable += 1;
-          console.log(
-            `  varied   ${question.question} took ${[...plans].sort((left, right) => left - right).join(" or ")} retrieval call(s)`,
-          );
-        }
+        const { modal, repeats } = stabilityOf(runs.map(one => one.plan));
+        if (modal === repeats) continue;
+        unstable += 1;
+        const counts = [...new Set(runs.map(one => one.retrievalCalls))].sort(
+          (left, right) => left - right,
+        );
+        console.log(
+          `  varied   ${question.question}`,
+          `\n           most common plan on ${String(modal)} of ${String(repeats)} repeat(s),`,
+          `taking ${counts.join(" or ")} retrieval call(s)`,
+        );
       }
       if (unstable === 0) {
-        console.log(`  Every question took the same number of retrieval calls on each repeat.`);
+        console.log(`  Every question took the same retrieval plan on each repeat.`);
       }
     }
 
     const wrongShape = observations.filter(
-      one => one.question.expect === "refusal" && !one.declined && one.rowsReturned > 0,
+      one =>
+        one.question.governedSurface === "cannot express" && !one.declined && one.rowsReturned > 0,
     );
     const refusals = sum(observations.map(one => one.refusedCalls));
 
@@ -202,7 +200,7 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
       `  ${String(refusals)} tool call(s) refused by the service across ${String(observations.length)} turn(s)`,
     );
     console.log(
-      `  ${String(observations.filter(one => one.question.expect === "refusal" && one.declined).length)} turn(s) correctly answered without retrieving anything`,
+      `  ${String(observations.filter(one => one.question.governedSurface === "cannot express" && one.declined).length)} turn(s) correctly answered without retrieving anything`,
     );
     if (wrongShape.length > 0) {
       console.log("");

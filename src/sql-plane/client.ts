@@ -48,7 +48,10 @@ export interface Reader {
    * role does not protect availability, and an unbounded scan of a production
    * table is a read.
    */
-  readonly run: (sql: string) => Promise<{
+  readonly run: (
+    sql: string,
+    values?: readonly unknown[],
+  ) => Promise<{
     readonly rows: readonly Record<string, unknown>[];
     readonly rowCount: number;
   }>;
@@ -61,13 +64,16 @@ export const createReader = (options: {
 }): Reader => {
   const pool = new pg.Pool({ connectionString: options.url, max: 4 });
   return {
-    run: async sql => {
+    run: async (sql, values) => {
       const client = await pool.connect();
       try {
         await client.query(
           `BEGIN READ ONLY; SET LOCAL statement_timeout = ${String(options.statementTimeoutMs)}`,
         );
-        const result = await client.query<Record<string, unknown>>(sql);
+        const result =
+          values === undefined
+            ? await client.query<Record<string, unknown>>(sql)
+            : await client.query<Record<string, unknown>>(sql, [...values]);
         return { rows: result.rows, rowCount: result.rowCount ?? result.rows.length };
       } finally {
         // Always, including after a failed statement: an aborted transaction

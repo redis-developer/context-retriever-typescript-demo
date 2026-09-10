@@ -129,6 +129,39 @@ group("statements it declines to vouch for", () => {
   });
 });
 
+group("a FROM that is not a table reference", () => {
+  // Measured, not imagined: the model reaches for EXTRACT on every question
+  // about a date range, and reading its FROM as a table sent correctly scoped
+  // statements to `cannot tell` on most of the interesting questions.
+
+  it("clears a statement using EXTRACT ... FROM in its predicate", () => {
+    const verdict = judge(
+      "select currency_code, sum(amount) from bank_transaction where customer_id = 'CUST001' " +
+        "and transaction_date >= extract(epoch from timestamp with time zone '2026-08-01 00:00:00+00') * 1000 " +
+        "group by currency_code",
+    );
+    expect(verdict.scoping).toBe("scoped");
+    expect(verdict.tablesRead).toEqual(["bank_transaction"]);
+  });
+
+  it("clears SUBSTRING and TRIM, which take the same keyword argument", () => {
+    for (const call of ["substring(remarks from 1 for 4)", "trim(both ' ' from remarks)"]) {
+      const verdict = judge(`select ${call} from bank_transaction where customer_id = 'CUST001'`);
+      expect(verdict.tablesRead).toEqual(["bank_transaction"]);
+      expect(verdict.scoping).toBe("scoped");
+    }
+  });
+
+  it("still refuses when the masked statement has no scoping predicate", () => {
+    // Masking must not become a way to hide the absence of a predicate.
+    expect(
+      judge(
+        "select extract(epoch from timestamp with time zone '2026-08-01 00:00:00+00') from bank_transaction",
+      ).scoping,
+    ).toBe("unscoped");
+  });
+});
+
 group("the rule that resolves doubt in the baseline's favour", () => {
   // With one wide table carrying customer_id on every row, this rule has no
   // case in the shipped comparison and the report says it fired zero times. It

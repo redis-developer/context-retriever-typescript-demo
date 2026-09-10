@@ -31,8 +31,18 @@ import { FieldType } from "../domain/field-types.ts";
  */
 export const WIDE_TABLE = "bank_transaction";
 
-/** The table carrying the parity fingerprint, so both stores can be shown to agree. */
-export const META_TABLE = "demo_meta";
+/**
+ * The table carrying the parity fingerprint, in a schema of its own.
+ *
+ * Kept out of `public`, and out of the reader role's grants, because it is our
+ * bookkeeping and not the adopter's data. In `public` it was visible to the
+ * baseline's `list_tables`, and the agent spent a step inspecting it on most
+ * questions -- sometimes exhausting its step budget before it ran a query at
+ * all. That is a handicap this comparison imposed rather than measured, and
+ * the baseline's world should be exactly the one wide table.
+ */
+export const META_SCHEMA = "demo_internal";
+export const META_TABLE = `${META_SCHEMA}.records`;
 
 /**
  * How the engine's field types become Postgres column types.
@@ -193,6 +203,7 @@ const definitionOf = (column: WideColumn): string =>
 export const buildDdl = (table: WideTable): string =>
   [
     `DROP TABLE IF EXISTS ${table.name};`,
+    `CREATE SCHEMA IF NOT EXISTS ${META_SCHEMA};`,
     `DROP TABLE IF EXISTS ${META_TABLE};`,
     "",
     `CREATE TABLE ${table.name} (`,
