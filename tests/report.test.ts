@@ -33,6 +33,7 @@ const observation = (over: Partial<Observation> = {}): Observation => ({
   inputTokens: 1000,
   outputTokens: 100,
   modelCalls: 2,
+  nestedModelCalls: 0,
   turnMs: 2000,
   schemaTokens: 700,
   verdicts: [],

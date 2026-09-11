@@ -260,6 +260,8 @@ Two things follow from taking that seriously. "Spend" is defined in the shared b
 
 Governance and cost lead. Accuracy is reported and does not lead: eight questions cannot separate two approaches on correctness, and a headline resting on a sample this size would not survive anyone re-running it. It is still reported, for two reasons. A comparison that omits correctness invites the question, and answering with a figure beats answering with a paragraph. And without it, an arm that answered "I cannot determine that" to everything would win every other column at once.
 
+The command is new and the agent loop it measures is still being tuned, so treat the output as a measurement harness rather than as a published result.
+
 The governance verdict on each generated statement is `scoped`, `unscoped` or `cannot tell`. The third is not a hedge and is never folded into either of the others. `src/compare/judge.ts` recognises one predicate form, a single-quoted equality against the declared subject column, and declines everything else, so an `IN` list, a bind parameter or an `OR` chain lands in `cannot tell` by design and the report prints how much it would not vouch for.
 
 It lexes before it matches, which matters more than it sounds. A regex over raw SQL clears both of these, and neither reaches the planner:
@@ -271,28 +273,17 @@ select * from bank_transaction where remarks = 'paid by customer_id = ''CUST001'
 
 Doubt resolves in the baseline's favour throughout. A statement reading only tables that carry no subject column is never asked for a scoping predicate, and the report prints how many statements that rule cleared. With one wide table it is zero, and it says so, because a rule that leaves no trace when it fires is a rule nobody can check.
 
-### What it found
+### Reading the output
 
-Measured over 48 turns: eight questions, three repeats, both arms, against a locally running engine and a local Postgres so neither side pays for distance.
+No figures are quoted here, deliberately. The agent loop is still being tuned, and a number published before that work is done would be read as a characterisation of the product rather than as a snapshot of an unfinished one. Run the command and read your own.
 
-|                                                | this surface | text-to-SQL |
-| ---------------------------------------------- | ------------ | ----------- |
-| input tokens, estimated                        | 455,111      | 273,667     |
-| model calls                                    | 75           | 171         |
-| turn, median                                   | 9,765 ms     | 13,767 ms   |
-| questions taking one path in all three repeats | 5 of 8       | 0 of 8      |
+What to look at, and in what order. The session block first, because no single per-question row is true on its own. Then the hidden-cost block, which explains why: a tool schema is charged on every model call whether a tool is used or not, while schema inspection is charged once and again on each later call in the same turn. One arm's cost is therefore fixed per call and the other's grows with calls, and the sign of the difference can change between one question and the next.
 
-Two findings, and the first is not the one the pitch expects. **This surface makes less than half the model calls and still spends 1.7 times the input tokens.** The cause is a fixed premium: sixteen generated tools serialise to roughly 6,800 estimated tokens of schema, re-sent on every model call whether a tool is used or not, against roughly 430 for four hand-written ones. The baseline's cost grows with calls; this one's is charged per call regardless. Fewer round trips did not mean fewer tokens.
+That is also where the lever is. Only tag- and numeric-indexed fields become filter parameters, and every indexed field's description is folded into a tool description re-sent every turn, so the index set is what moves the figure. It is the same conclusion the tool surface section reaches from the other direction.
 
-That makes index curation the lever, which is where the tool surface section arrives from the other direction: only tag- and numeric-indexed fields become filter parameters, and every indexed field's description is folded into a tool description re-sent every turn.
+Then the governance block, and read its denominators. Whether a model-mediated guardrail holds is a property of the day: the same question has produced a scoped statement on one run of this command and a cross-customer read on another, against the same code and the same records. That is why every governance figure carries how many repeats produced it, and why a single repeat is not worth quoting.
 
-The second finding is stability. No question took the same statement set on all three repeats, and three took a different one each time. The governed path varied on three of eight. Both arms are model-driven and neither is deterministic, but the spread is much wider when the model is composing SQL, which is why the report prints a denominator against every governance figure.
-
-On governance, this run is clean, and a clean run is not a clean bill. All 24 statements the baseline wrote were scoped to the signed-in customer, and it declined both out-of-scope questions rather than querying them. An earlier single run of the same command, against the same code and the same records, had it read another customer's rows on one of those questions. Whether a model-mediated guardrail holds is a property of the day, which is why every governance figure in the report carries how many repeats produced it, and why one repeat is not worth quoting.
-
-Accuracy came out 14 of 15 against 11 of 15 on the turns with a known answer. Fifteen scored turns is far too few to separate two approaches, so read that as neither arm being obviously wrong on this data rather than as a result. Do not build an argument on it.
-
-Where the baseline pays most is where the question is hardest. On the one question this surface cannot express, a filtered total over a date range, it declined for 17,143 tokens while the baseline answered for 23,712 across twelve model calls. That is the honest shape of the trade: the baseline can express more, and it spends more finding out how.
+Accuracy comes last and is the weakest thing in the report. A handful of scored turns cannot separate two approaches, so read a difference there as neither arm being obviously wrong on this data rather than as a result.
 
 ## Known limitations
 

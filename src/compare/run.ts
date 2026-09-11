@@ -81,6 +81,7 @@ export const runArm = async (options: {
     inputTokens: turn.usage.inputTokens ?? 0,
     outputTokens: turn.usage.outputTokens ?? 0,
     modelCalls: turn.usage.modelCalls,
+    nestedModelCalls: turn.usage.nestedModelCalls,
     turnMs: turn.wallMs,
     schemaTokens: schemaTokensOf(tools),
     verdicts: options.arm.verdicts(traces, options.caller.id),

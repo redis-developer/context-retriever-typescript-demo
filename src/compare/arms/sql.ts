@@ -75,7 +75,14 @@ export const sqlArm = (options: {
     // Not async: building this arm's tools needs no round trip, unlike the
     // governed arm, which discovers its tool surface from the service.
     buildTools: (context: ArmContext): Promise<ToolSet> => {
-      /** Records a call that put data in context without returning records. */
+      /**
+       * Records a call that put data in context without returning records.
+       *
+       * `rows` is set where the call disclosed any, which for schema
+       * inspection is the sample rows it embeds. Those rows are in the
+       * transcript exactly as a queried row would be, so leaving the count off
+       * reported this arm as having drawn fewer rows than it drew.
+       */
       const inspection = (
         name: string,
         callId: string,
@@ -83,6 +90,7 @@ export const sqlArm = (options: {
         ms: number,
         returned: unknown,
         tables: readonly string[],
+        rows = 0,
       ): void => {
         context.onTrace({
           name,
@@ -93,6 +101,7 @@ export const sqlArm = (options: {
           ms,
           ok: true,
           tables,
+          ...(rows === 0 ? {} : { rows }),
         });
       };
 
@@ -140,6 +149,7 @@ export const sqlArm = (options: {
               .filter(name => /^[a-z_][a-z0-9_]*$/i.test(name));
 
             const described: Record<string, unknown> = {};
+            let disclosed = 0;
             for (const name of requested) {
               const columns = await options.reader.run(
                 "SELECT column_name, data_type FROM information_schema.columns " +
@@ -151,6 +161,7 @@ export const sqlArm = (options: {
                   ? await options.reader.run(sampleRowsSql(name, options.sampleRows))
                   : { rows: [] };
               described[name] = { columns: columns.rows, exampleRows: samples.rows };
+              disclosed += samples.rows.length;
             }
 
             inspection(
@@ -160,6 +171,7 @@ export const sqlArm = (options: {
               performance.now() - started,
               described,
               requested,
+              disclosed,
             );
             return described;
           },

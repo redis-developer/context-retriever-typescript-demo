@@ -42,9 +42,21 @@ export const pad = (value: string | number, width: number): string => String(val
  * late one. Reporting only its size understates schema inspection
  * specifically, because inspection happens first and is therefore carried
  * furthest, and that is exactly the cost the baseline's discovery step incurs.
+ *
+ * `step` is the zero-based call that issued the tool call, which by definition
+ * had already been sent before the result existed. So the calls that carry it
+ * are the ones strictly after it, and there are `outerCalls - 1 - step` of
+ * them. Counting the issuing call inflates every figure here, and flooring the
+ * result at one bills a result that no later call consumed, which happens
+ * whenever a turn ends on the step budget.
+ *
+ * `outerCalls` excludes any model call an arm's own tool made. A nested call
+ * receives its own prompt and neither the outer tool schemas nor any earlier
+ * tool result, so counting it here would charge the arm that has such a tool
+ * for context it was never sent.
  */
-export const carriedTokens = (trace: ToolTrace, step: number, modelCalls: number): number =>
-  trace.resultTokens * Math.max(1, modelCalls - step);
+export const carriedTokens = (trace: ToolTrace, step: number, outerCalls: number): number =>
+  trace.resultTokens * Math.max(0, outerCalls - 1 - step);
 
 /**
  * What an arm's tool definitions cost on every model call.
@@ -79,6 +91,16 @@ export interface Observation {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly modelCalls: number;
+  /**
+   * Of `modelCalls`, how many an arm's own tool made rather than the loop.
+   *
+   * Carried because the two are not interchangeable for cost attribution. A
+   * nested call is a real model call and belongs in the headline count, and it
+   * is sent neither the outer tool schemas nor any earlier tool result, so
+   * charging it for either would bias the comparison against whichever arm has
+   * a model-backed tool. The SQL baseline's query checker is one.
+   */
+  readonly nestedModelCalls: number;
   readonly turnMs: number;
   /** Estimated tokens of this arm's tool definitions, charged on every call. */
   readonly schemaTokens: number;
@@ -92,14 +114,29 @@ const retrieval = (one: Observation): readonly ToolTrace[] =>
 const inspection = (one: Observation): readonly ToolTrace[] =>
   one.traces.filter(trace => trace.kind === "inspection");
 
+/**
+ * Rows this turn put in front of the model.
+ *
+ * Across every trace, not only the retrieval ones. A schema-inspection call
+ * returns no records and still discloses sample rows by default, and those
+ * rows are in the transcript exactly as a queried row would be. Counting only
+ * retrieval reported the arm that inspects a schema as having drawn fewer rows
+ * than it drew, and left this figure inconsistent with the context-token
+ * figure beside it, which has always included inspection output.
+ */
+const rowsDrawn = (one: Observation): number => sum(one.traces.map(trace => trace.rows ?? 0));
+
 /** Estimated tokens of tool results, the one figure comparable across arms. */
 const contextTokens = (one: Observation): number =>
   sum(one.traces.map(trace => trace.resultTokens));
 
+/** Model calls made by the loop itself, which are the ones carrying context. */
+const outerCalls = (one: Observation): number => Math.max(0, one.modelCalls - one.nestedModelCalls);
+
 const carried = (one: Observation, traces: readonly ToolTrace[]): number =>
   sum(
     traces.map(trace =>
-      carriedTokens(trace, one.stepOfCall.get(trace.callId) ?? 0, one.modelCalls),
+      carriedTokens(trace, one.stepOfCall.get(trace.callId) ?? 0, outerCalls(one)),
     ),
   );
 
@@ -230,7 +267,7 @@ const summarise = (arm: string, all: readonly Observation[]): ArmSummary => {
   const guarded = all.filter(one => one.guardrail);
   const verdicts = guarded.flatMap(one => one.verdicts);
   const attributed = sum(
-    guarded.map(one => one.schemaTokens * one.modelCalls + carried(one, one.traces)),
+    guarded.map(one => one.schemaTokens * outerCalls(one) + carried(one, one.traces)),
   );
   const providerInput = sum(guarded.map(one => one.inputTokens));
 
@@ -257,7 +294,7 @@ const summarise = (arm: string, all: readonly Observation[]): ArmSummary => {
     ),
     inspectionTokensCarried: median(guarded.map(one => carried(one, inspection(one)))),
     attributedShare: providerInput === 0 ? 0 : attributed / providerInput,
-    rowsMedian: median(guarded.map(one => sum(retrieval(one).map(trace => trace.rows ?? 0)))),
+    rowsMedian: median(guarded.map(rowsDrawn)),
     contextTokensMedian: median(guarded.map(contextTokens)),
     statements: verdicts.length,
     scoping: scopingCounts(verdicts),
@@ -301,7 +338,7 @@ export const compare = (observations: readonly Observation[]): Comparison => {
             modelCalls: median(runs.map(one => one.modelCalls)),
             retrievalCalls: median(runs.map(one => retrieval(one).length)),
             inspectionCalls: median(runs.map(one => inspection(one).length)),
-            rows: median(runs.map(one => sum(retrieval(one).map(trace => trace.rows ?? 0)))),
+            rows: median(runs.map(rowsDrawn)),
             contextTokens: median(runs.map(contextTokens)),
             turnMs: median(runs.map(one => one.turnMs)),
             stability: stabilityOf(runs.map(signatureOf)),

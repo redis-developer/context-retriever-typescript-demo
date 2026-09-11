@@ -28,7 +28,7 @@ export const compare = async (options: {
 }): Promise<void> => {
   const demo = demoConfig();
   const domain = resolveDomain(demo.domain);
-  const scenarios = scenariosFor(domain, demo.customerId);
+  const scenarios = scenariosFor(domain, demo.customerId, demo.seed);
   const table = wideTableOf(domain);
   const sql = sqlConfig();
 

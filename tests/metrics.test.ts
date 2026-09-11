@@ -48,6 +48,7 @@ const observation = (over: Partial<Observation> = {}): Observation => ({
   inputTokens: 1000,
   outputTokens: 100,
   modelCalls: 2,
+  nestedModelCalls: 0,
   turnMs: 2000,
   schemaTokens: 700,
   verdicts: [],
@@ -71,6 +72,25 @@ group("stability", () => {
 
   it("reports nothing rather than throwing on no repeats", () => {
     expect(stabilityOf([])).toEqual({ repeats: 0, modal: 0, distinct: 0 });
+  });
+});
+
+group("rows drawn into context", () => {
+  it("counts rows a schema-inspection call disclosed, not only retrieved ones", () => {
+    // Sample rows in schema output are in the transcript exactly as a queried
+    // row would be. Counting only retrieval reported the arm that inspects a
+    // schema as having drawn fewer rows than it drew.
+    const result = compare([
+      observation({
+        arm: "sql",
+        traces: [
+          trace({ name: "get_schema", kind: "inspection", rows: 3 }),
+          trace({ name: "run_sql", rows: 1 }),
+        ],
+      }),
+      observation({ arm: "governed" }),
+    ]);
+    expect(result.summaries.find(one => one.arm === "sql")?.rowsMedian).toBe(4);
   });
 });
 
@@ -102,15 +122,37 @@ group("the path a turn took", () => {
 });
 
 group("what a tool result cost", () => {
-  it("bills a result again for every later model call in the turn", () => {
-    // A result that arrives first is carried furthest. Reporting only its size
-    // understates schema inspection, which always happens early.
-    expect(carriedTokens(trace({ resultTokens: 100 }), 0, 4)).toBe(400);
-    expect(carriedTokens(trace({ resultTokens: 100 }), 3, 4)).toBe(100);
+  it("bills a result once for every model call strictly after the one that issued it", () => {
+    // A result that arrives first is carried furthest, which is why schema
+    // inspection costs more than its size suggests. The call that issued the
+    // tool call is not one of them: it had already been sent before the result
+    // existed, so counting it inflates every figure here.
+    expect(carriedTokens(trace({ resultTokens: 100 }), 0, 4)).toBe(300);
+    expect(carriedTokens(trace({ resultTokens: 100 }), 1, 4)).toBe(200);
+    expect(carriedTokens(trace({ resultTokens: 100 }), 2, 4)).toBe(100);
   });
 
-  it("never bills a result less than once", () => {
-    expect(carriedTokens(trace({ resultTokens: 100 }), 5, 2)).toBe(100);
+  it("bills nothing for a result no later call consumed", () => {
+    // A turn that ended on the step budget leaves its last tool result unsent.
+    // Flooring this at one charged for context the model never received.
+    expect(carriedTokens(trace({ resultTokens: 100 }), 3, 4)).toBe(0);
+    expect(carriedTokens(trace({ resultTokens: 100 }), 5, 2)).toBe(0);
+  });
+
+  it("charges a nested model call for nothing, since it is sent neither", () => {
+    // The SQL baseline's query checker is a model call that receives its own
+    // prompt and no tool schemas or earlier results. Passing the count that
+    // includes it would charge the arm that has such a tool for context it was
+    // never sent.
+    const one = observation({
+      modelCalls: 4,
+      nestedModelCalls: 2,
+      traces: [trace({ resultTokens: 100, callId: "a" })],
+      stepOfCall: new Map([["a", 0]]),
+    });
+    // Two outer calls, so one call carried the result.
+    const outer = one.modelCalls - one.nestedModelCalls;
+    expect(carriedTokens(trace({ resultTokens: 100 }), 0, outer)).toBe(100);
   });
 });
 

@@ -52,9 +52,6 @@ import { resultTokensOf } from "../lib/tokens.ts";
  */
 export type ToolKind = "retrieval" | "internal" | "inspection";
 
-/** True when a call of this kind fetches records, so a row count means something. */
-export const drawsRows = (kind: ToolKind): boolean => kind === "retrieval";
-
 /** One tool call, as the interface shows it and as the report measures it. */
 export interface ToolTrace {
   readonly name: string;

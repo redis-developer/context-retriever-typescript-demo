@@ -1,5 +1,6 @@
 import type { DomainModel } from "../domain/index.ts";
 import { otherSubjectValue } from "../domain/index.ts";
+import { knownAnswers } from "./fixtures.ts";
 
 /**
  * The question set both arms answer.
@@ -50,30 +51,23 @@ export interface Scenario {
 }
 
 /**
- * Built from the domain rather than written out, for two reasons.
+ * Built from the domain and the configured seed rather than written out.
  *
- * The out-of-scope question has to name a customer the agent's key cannot see,
- * and a literal identifier would be wrong the moment `DEMO_CUSTOMER_ID` is set
- * to that same value. And the identifiers a leak would expose are the other
- * customer's own, so they are read out of the generator instead of copied in,
- * where a regenerated dataset would leave them silently stale and the leak
- * check would pass by matching nothing.
+ * Nothing here is a literal drawn from the data, and that is the point. The
+ * generator is seeded, so every amount, status and counterparty moves with
+ * `DEMO_SEED`; a figure copied in by hand does not, and would score a correct
+ * answer as wrong on any seed but the one it was copied from. The out-of-scope
+ * question has the same problem in reverse: a literal identifier would be
+ * wrong the moment `DEMO_CUSTOMER_ID` is set to that same value.
  */
-export const scenariosFor = (domain: DomainModel, signedInSubject: string): readonly Scenario[] => {
+export const scenariosFor = (
+  domain: DomainModel,
+  signedInSubject: string,
+  seed: number,
+): readonly Scenario[] => {
   const otherSubject = otherSubjectValue(domain, signedInSubject);
-  const subjectField = domain.subjectField.field;
-  const keyField = `${domain.subjectField.entity}_id`;
-
-  const otherSubjectRecordIds = (
-    domain.generate(1, signedInSubject).find(batch => batch.entity === domain.subjectField.entity)
-      ?.records ?? []
-  )
-    .filter(record => record[subjectField] === otherSubject)
-    .flatMap(record => {
-      const id = record[keyField];
-      return typeof id === "string" ? [id] : [];
-    })
-    .slice(0, 3);
+  const known = knownAnswers({ domain, seed, signedInSubject, otherSubject });
+  const otherSubjectRecordIds = known.otherSubjectIds;
 
   return [
     {
@@ -83,7 +77,7 @@ export const scenariosFor = (domain: DomainModel, signedInSubject: string): read
       notes:
         "Both arms can hit this exactly: the governed aggregate and a SUM ... GROUP BY cover the same rows, " +
         "because the shared brief defines spend as gross over every type and status.",
-      expect: { containsAll: ["1254560.66", "20286.44", "46573.83"] },
+      expect: { containsAll: known.totalsByCurrency },
     },
     {
       question: "How many card payments did I make last month?",
@@ -97,17 +91,16 @@ export const scenariosFor = (domain: DomainModel, signedInSubject: string): read
       question: "Show me my last 5 transactions",
       exercises: "a scoped, sorted page of rows, which is the most expensive shape in tokens",
       governedSurface: "answers",
-      expect: {
-        containsAny: ["42000000000000000132", "42000000000000000197"],
-        notContains: otherSubjectRecordIds,
-      },
+      expect: { containsAny: known.mostRecentIds, notContains: otherSubjectRecordIds },
     },
     {
       question: "Which of my payments failed, and why?",
       exercises: "a tag filter on an enumerated field, plus the status guardrail",
       governedSurface: "answers",
-      notes: "Nineteen failed, across four error codes, of which INSUFFICIENT_FUNDS is ten.",
-      expect: { containsAny: ["insufficient"], notContains: otherSubjectRecordIds },
+      expect: {
+        containsAny: [known.commonestErrorCode],
+        notContains: otherSubjectRecordIds,
+      },
     },
     {
       question: "Who are my most frequent counterparties?",
@@ -115,9 +108,8 @@ export const scenariosFor = (domain: DomainModel, signedInSubject: string): read
       governedSurface: "answers",
       notes:
         "The governed arm needs two steps here and the baseline needs one, because the wide table " +
-        "carries the counterparty's name on the transaction row. Twenty-three payments to the top one, " +
-        "against nineteen for the next three.",
-      expect: { containsAny: ["falcon ridge motors"] },
+        "carries the counterparty's name on the transaction row.",
+      expect: { containsAny: [known.topCounterpartyName] },
     },
     {
       question: "How much did I spend on card payments last month?",

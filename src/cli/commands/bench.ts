@@ -61,7 +61,7 @@ export const bench = async (options: { readonly repeat: number }): Promise<void>
   const { mcpUrl, agentApiKey } = dataPlaneConfig();
   const session = new SurfaceSession({ mcpUrl, agentApiKey });
   const ask = createAsk({ session, domain });
-  const QUESTIONS = scenariosFor(domain, demo.customerId);
+  const QUESTIONS = scenariosFor(domain, demo.customerId, demo.seed);
 
   const totalTurns = QUESTIONS.length * options.repeat;
   console.log(
