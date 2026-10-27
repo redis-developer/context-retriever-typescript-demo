@@ -43,19 +43,21 @@ Read it for one of three reasons. To copy the patterns into your own TypeScript 
 
 ## What is inside
 
-| Command              | What it does                                                          |
-| -------------------- | --------------------------------------------------------------------- |
-| `npm run doctor`     | Reports what is configured and what is reachable                      |
-| `npm run seed`       | Writes deterministic synthetic records into Redis                     |
-| `npm run provision`  | Creates the surface, imports the records, mints a scoped agent key    |
-| `npm run tools`      | Prints the tool surface this deployment generated                     |
-| `npm run query`      | One retrieval call, timed and validated                               |
-| `npm run guardrails` | Each guardrail, shown refusing something                              |
-| `npm run probe`      | What the tool surface cannot express, decided without calling a model |
-| `npm run compose`    | One question answered across both entities                            |
-| `npm run agent`      | A tool-calling agent behind a single-file web interface               |
-| `npm run bench`      | A committed question set, with tokens and latency per question        |
-| `npm run teardown`   | Deletes the surface, leaving the records in Redis                     |
+| Command              | What it does                                                           |
+| -------------------- | ---------------------------------------------------------------------- |
+| `npm run doctor`     | Reports what is configured and what is reachable                       |
+| `npm run seed`       | Writes deterministic synthetic records into Redis                      |
+| `npm run provision`  | Creates the surface, imports the records, mints a scoped agent key     |
+| `npm run tools`      | Prints the tool surface this deployment generated                      |
+| `npm run query`      | One retrieval call, timed and validated                                |
+| `npm run guardrails` | Each guardrail, shown refusing something                               |
+| `npm run probe`      | What the tool surface cannot express, decided without calling a model  |
+| `npm run compose`    | One question answered across both entities                             |
+| `npm run agent`      | A tool-calling agent behind a single-file web interface                |
+| `npm run bench`      | A committed question set, with tokens and latency per question         |
+| `npm run sql:seed`   | Loads the same records into Postgres, for the comparison below         |
+| `npm run compare`    | The same questions answered by this surface and by a text-to-SQL agent |
+| `npm run teardown`   | Deletes the surface, leaving the records in Redis                      |
 
 The code behind them:
 
@@ -66,10 +68,12 @@ src/control-plane/   Administrative REST: surfaces, provisioning, agent keys
 src/data-plane/      MCP: session lifecycle, tool discovery, retrieval
 src/seed/            A thin Redis seeding utility
 src/cli/             The commands above
-src/agent/           The bridge, an HTTP server and a single-file interface
+src/agent/           The bridge, the measured turn, an HTTP server and a single-file interface
+src/compare/         The text-to-SQL comparison: arms, prompt scaffold, judge, report
+src/sql-plane/       Postgres for the comparison's baseline
 ```
 
-If you are showing this to somebody rather than reading it, [DEMO.md](DEMO.md) is the script: what to run, in what order, what to say at each step, and what not to promise.
+Everything except the last two is the reference. `src/compare/` and `src/sql-plane/` are an extension, and the only part that needs Docker.
 
 ## What it evidences
 
@@ -209,7 +213,7 @@ Internal tools exist because the generated tools cannot answer who is signed in 
 
 ### What a turn actually costs
 
-`npm run bench -- --repeat 3` runs the seven committed questions in `src/agent/questions.ts` and reports tokens, model calls, retrieval calls and latency for each. Two of the seven are questions this surface cannot answer, because a benchmark of only the flattering cases reports a figure nobody will reproduce.
+`npm run bench -- --repeat 3` runs the committed questions in `src/compare/scenarios.ts` and reports tokens, model calls, retrieval calls and latency for each. Two of the seven are questions this surface cannot answer, because a benchmark of only the flattering cases reports a figure nobody will reproduce.
 
 Retrieval is not where the time goes, and that is worth stating plainly rather than burying. Over one run of 21 turns against a locally running service, retrieval took a median of 11.4 ms across the 40 individual calls, while a whole turn took a median of 11.71 seconds. The command computes retrieval's share within each turn and then takes the median of those, rather than dividing one median by another, and it comes to a tenth of one per cent.
 
@@ -217,13 +221,76 @@ So the model is the latency budget, and the useful claim is not that retrieval i
 
 The same measurement undercuts a distinction this command was built to draw. The first turn of a process pays for the MCP connection and the first tool discovery, so it should be the expensive one. It is not reliably either: across runs it has landed on both sides of the median for every turn after it, because one cold sample cannot outweigh how much the model itself varies. The command still reports the comparison, and the honest reading is that a connection paid once per process disappears into the noise. It would not disappear for a deployment that opened a session per request, which is the mistake `src/data-plane/session.ts` exists to avoid.
 
-Run it with `--repeat 3` or more before quoting anything from it. The command reports which questions took a different number of retrieval calls across repeats, and on most runs two or three of the seven do. A single run of a model-driven question set is a sample of one.
+Run it with `--repeat 3` or more before quoting anything from it. The command reports which questions took a different retrieval plan across repeats, and on most runs two or three of them do. A single run of a model-driven question set is a sample of one.
+
+## Compared against text-to-SQL
+
+The alternative to a governed tool surface is to let the agent write SQL. `npm run compare` runs both over identical records and reports what each costs and what each read.
+
+```bash
+docker compose up -d
+npm run sql:seed
+npm run compare -- --repeat 3
+```
+
+The baseline queries one wide table of 31 columns, carrying every field of both entities joined along the declared relationship. That is the shape worth comparing against: an agent with a connection to one transactions table. It hands the baseline a real advantage, deliberately. This surface normalises the same records into two entities, so a question about a counterparty's name costs it a second call, and the wide table removes that cost.
+
+Postgres, not Oracle. The mechanisms transfer; the magnitudes do not. Oracle's dialect is harder to generate against, so a baseline running there would do worse than this one rather than better. Don't quote a figure from here as an Oracle figure.
+
+### The baseline is hand-written, and that needs a reason
+
+TypeScript has no canonical text-to-SQL toolkit. `SqlDatabase` and `SqlToolkit` were moved out of `langchain` into `@langchain/classic`, whose npm description is "Old abstractions from LangChain.js", and LangChain's current JavaScript SQL-agent guide doesn't use them. It hand-writes an `execute_sql` tool with `tool()` and Zod. So the baseline here is four tools in that idiom: `list_tables`, `get_schema`, `check_query` and `run_sql`. That is closer to current guidance than importing the legacy classes, and a comparison against a weakened baseline is not evidence.
+
+`get_schema` embeds three sample rows, because that is the documented default of the thing being copied: `sample_rows_in_table_info = 3` in Python, `sampleRowsInTableInfo = 3` in `@langchain/classic`. Departing from it in either direction would be the larger error. Run `--sample-rows 0` to see what it costs.
+
+### Only the tools differ, and it is enforced rather than promised
+
+Four mechanisms, because a fairness claim asserted in a README is exactly the evidence standard this comparison exists to beat.
+
+- `src/agent/turn.ts` is the only code that calls a model. The shipped agent and both arms go through it, so a figure from `npm run bench` and a figure from `npm run compare` are the same kind of figure.
+- The `Arm` interface in `src/compare/arm.ts` has no member for a model, a prompt or a step budget. An arm cannot differ on any of them because there is nowhere to say so.
+- ESLint bars `src/compare/arms/**` from importing the model provider or the configuration, so an arm cannot reach around that interface.
+- Both loaders write a fingerprint of the records, and `compare` recomputes it and refuses to run on a mismatch. Identical data is a precondition, not a claim.
+
+The shared prompt carries the business, the rules and the definitions, and each arm adds one block about its own tools. `tests/compare-fairness.test.ts` strips those two blocks and asserts that what remains is identical.
+
+Two things follow from taking that seriously. "Spend" is defined in the shared brief as the gross sum over every type and status, because the word has two defensible readings that give different numbers, and gross is the one both arms can compute exactly. Defining it narrowly would make it unanswerable for the aggregate tools and score a capability gap as a wrong answer. And the identity and clock tools go to both arms, added by the runner rather than by an arm: without them the baseline had no way to learn which customer it was serving and asked the user for their customer ID, which measures a missing capability and reports it as governance.
+
+### What it measures
+
+Governance and cost lead. Accuracy is reported and does not lead: eight questions cannot separate two approaches on correctness, and a headline resting on a sample this size would not survive anyone re-running it. It is still reported, for two reasons. A comparison that omits correctness invites the question, and answering with a figure beats answering with a paragraph. And without it, an arm that answered "I cannot determine that" to everything would win every other column at once.
+
+The command is new and the agent loop it measures is still being tuned, so treat the output as a measurement harness rather than as a published result.
+
+The governance verdict on each generated statement is `scoped`, `unscoped` or `cannot tell`. The third is not a hedge and is never folded into either of the others. `src/compare/judge.ts` recognises one predicate form, a single-quoted equality against the declared subject column, and declines everything else, so an `IN` list, a bind parameter or an `OR` chain lands in `cannot tell` by design and the report prints how much it would not vouch for.
+
+It lexes before it matches, which matters more than it sounds. A regex over raw SQL clears both of these, and neither reaches the planner:
+
+```sql
+select * from bank_transaction -- customer_id = 'CUST001'
+select * from bank_transaction where remarks = 'paid by customer_id = ''CUST001'''
+```
+
+Doubt resolves in the baseline's favour throughout. A statement reading only tables that carry no subject column is never asked for a scoping predicate, and the report prints how many statements that rule cleared. With one wide table it is zero, and it says so, because a rule that leaves no trace when it fires is a rule nobody can check.
+
+### Reading the output
+
+No figures are quoted here, deliberately. The agent loop is still being tuned, and a number published before that work is done would be read as a characterisation of the product rather than as a snapshot of an unfinished one. Run the command and read your own.
+
+What to look at, and in what order. The session block first, because no single per-question row is true on its own. Then the hidden-cost block, which explains why: a tool schema is charged on every model call whether a tool is used or not, while schema inspection is charged once and again on each later call in the same turn. One arm's cost is therefore fixed per call and the other's grows with calls, and the sign of the difference can change between one question and the next.
+
+That is also where the lever is. Only tag- and numeric-indexed fields become filter parameters, and every indexed field's description is folded into a tool description re-sent every turn, so the index set is what moves the figure. It is the same conclusion the tool surface section reaches from the other direction.
+
+Then the governance block, and read its denominators. Whether a model-mediated guardrail holds is a property of the day: the same question has produced a scoped statement on one run of this command and a cross-customer read on another, against the same code and the same records. That is why every governance figure carries how many repeats produced it, and why a single repeat is not worth quoting.
+
+Accuracy comes last and is the weakest thing in the report. A handful of scored turns cannot separate two approaches, so read a difference there as neither arm being obviously wrong on this data rather than as a result.
 
 ## Known limitations
 
 - Answers are only as good as the model. Every path here has been run against a live model, and the agent's own reasoning is the least predictable part of it: the same question can produce a different tool plan on consecutive turns. Retrieval latency does not vary that way, which is the point of showing both in the trace.
 - Semantic and hybrid search are out of scope. No entity carries a vector, which is why no embedding provider is needed. Adding one is additive: a `list[float]` field with a `sourceField` coupling to a text-indexed field.
 - Schema inference, activity logs, and any deployment automation are out of scope.
+- The comparison's baseline runs on Postgres and its judge understands one predicate form. Both are stated where they are used, and both err towards the baseline. Nothing here says anything about how either side scales: the dataset is 400 rows on one node, and both stores are on loopback, which is what makes the latency figures comparable and also what makes them useless for sizing.
 - `summarize_<entity>` and `count_<entity>` take no condition parameters, and `group_by` takes a single field, so there is no filtered SUM. A filtered aggregate is expressed by grouping and then selecting in the caller, as `npm run compose` does. Two consequences are worth knowing before you design questions around it. Grouping a sum by anything other than `currency_code` adds different currencies together and returns a number that means nothing. And a `group_by` is only useful while the field's distinct values fit under the hundred-group ceiling, which rules out encoding a composite slice key as a tag: on this dataset a code-currency-month key already has ninety-five distinct values and would grow by a dozen a month.
 - Counting a filtered set is the exception, and it is exact. `filter_*` and `search_*` results carry `total_count`, the server-side match count for the conditions, independent of `limit`. Asking with `limit: 1` buys an exact count for one record transferred, which is why the agent is told to count that way rather than by measuring a result array.
 

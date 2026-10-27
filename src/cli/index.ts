@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 
 import { runCommand } from "../lib/errors.ts";
 import { bench } from "./commands/bench.ts";
+import { compare } from "./commands/compare.ts";
 import { compose } from "./commands/compose.ts";
 import { doctor } from "./commands/doctor.ts";
 import { guardrails } from "./commands/guardrails.ts";
@@ -9,6 +10,7 @@ import { probe } from "./commands/probe.ts";
 import { provision } from "./commands/provision.ts";
 import { query } from "./commands/query.ts";
 import { seed } from "./commands/seed.ts";
+import { sqlSeed } from "./commands/sql-seed.ts";
 import { teardown } from "./commands/teardown.ts";
 import { tools } from "./commands/tools.ts";
 
@@ -24,11 +26,19 @@ Context Retriever TypeScript demo
   npm run probe                   What the tool surface cannot express, with no model
   npm run bench -- [--repeat N]   The committed question set, timed and costed
   npm run compose -- [--query X]  One question answered across both entities
+  npm run sql:seed                Load the SQL baseline's copy into Postgres
+  npm run compare -- [options]    Both arms over the same questions, side by side
   npm run teardown -- [--name X]  Delete the demo surface
 
 tools options
   --schema        Print each tool's full input schema
   --entity NAME   Restrict --schema to one entity's tools
+
+compare options
+  --repeat N          Repeats per question, so a spread can be reported
+  --arm NAME          governed, sql or both. Default both
+  --drop-guardrail    Also run with the tenant guardrail sentence removed
+  --sample-rows N     Sample rows the SQL arm's schema tool embeds. Default 3
 
 query options
   --tool NAME     Call a specific tool instead of the default scoped read
@@ -52,6 +62,9 @@ const main = async (): Promise<void> => {
       query: { type: "string" },
       repeat: { type: "string", default: "1" },
       limit: { type: "string", default: "10" },
+      arm: { type: "string", default: "both" },
+      "drop-guardrail": { type: "boolean", default: false },
+      "sample-rows": { type: "string", default: "3" },
       help: { type: "boolean", default: false },
     },
   });
@@ -66,6 +79,15 @@ const main = async (): Promise<void> => {
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isFinite(parsed) || parsed < 1) {
       throw new Error(`--${label} must be a positive integer, got ${JSON.stringify(raw)}`);
+    }
+    return parsed;
+  };
+
+  /** Zero is a meaningful value for --sample-rows, so it needs its own check. */
+  const nonNegativeInt = (raw: string, label: string): number => {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new Error(`--${label} must be zero or a positive integer, got ${JSON.stringify(raw)}`);
     }
     return parsed;
   };
@@ -102,6 +124,19 @@ const main = async (): Promise<void> => {
         repeat: positiveInt(values.repeat, "repeat"),
         limit: positiveInt(values.limit, "limit"),
       });
+      return;
+    case "compare":
+      await compare({
+        repeat: positiveInt(values.repeat, "repeat"),
+        arm: values.arm,
+        dropGuardrail: values["drop-guardrail"],
+        // Zero is meaningful here: it is how a sceptic re-runs the baseline
+        // without the sample rows its standard implementation embeds.
+        sampleRows: nonNegativeInt(values["sample-rows"], "sample-rows"),
+      });
+      return;
+    case "sql:seed":
+      await sqlSeed();
       return;
     case "compose":
       // A term that matches several counterparties, so the composition has

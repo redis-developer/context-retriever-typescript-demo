@@ -1,18 +1,22 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, stepCountIs } from "ai";
-
-import { agentConfig, demoConfig } from "../config/env.ts";
+import { demoConfig } from "../config/env.ts";
 import type { DomainModel } from "../domain/types.ts";
 import type { SurfaceSession } from "../data-plane/session.ts";
-import { buildToolSet, systemPrompt, type ToolTrace } from "./bridge.ts";
+import { buildRetrievalTools, withSessionTools, type ToolTrace } from "./bridge.ts";
+import { GOVERNED_TOOL_BRIEF, buildPrompt } from "./prompt.ts";
+import { runTurn } from "./turn.ts";
 
 /**
- * One question, answered.
+ * One question, answered by the governed surface.
  *
  * This lives apart from the HTTP server because two callers need it and they
  * need it identically: the web interface, and `npm run bench`. A benchmark that
  * measured a different code path from the demo would report figures nobody
  * could act on.
+ *
+ * The model, the step budget and the usage accounting are not here. They moved
+ * to `turn.ts`, which the text-to-SQL comparison also calls, so a figure from
+ * `bench` and a figure from `compare` are the same kind of figure rather than
+ * two similar-looking measurements taken by two copies of the same code.
  */
 
 export interface AskResult {
@@ -28,9 +32,6 @@ export interface AskResult {
   readonly model: string;
 }
 
-/** How many turns the agent may take: identity, clock, retrieval, answer. */
-const MAX_STEPS = 10;
-
 /**
  * Builds the ask function against one session.
  *
@@ -44,53 +45,46 @@ export const createAsk = (options: {
   readonly domain: DomainModel;
 }): ((question: string) => Promise<AskResult>) => {
   const demo = demoConfig();
-  const { openaiApiKey } = agentConfig();
-  const openai = createOpenAI({ apiKey: openaiApiKey });
 
   return async (question: string): Promise<AskResult> => {
     const traces: ToolTrace[] = [];
-    const tools = await buildToolSet({
-      session: options.session,
-      domain: options.domain,
-      context: { customer: { customerId: demo.customerId, name: demo.customerName } },
-      onTrace: trace => traces.push(trace),
-    });
+    const onTrace = (trace: ToolTrace): void => {
+      traces.push(trace);
+    };
+    const context = { customer: { customerId: demo.customerId, name: demo.customerName } };
+    const tools = withSessionTools(
+      await buildRetrievalTools({
+        session: options.session,
+        domain: options.domain,
+        context,
+        onTrace,
+      }),
+      { domain: options.domain, context, onTrace },
+    );
 
-    const started = performance.now();
-    const result = await generateText({
-      model: openai(demo.chatModel),
-      system: systemPrompt(options.domain),
-      prompt: question,
+    const turn = await runTurn({
+      system: buildPrompt({
+        domain: options.domain,
+        toolBrief: GOVERNED_TOOL_BRIEF,
+        tenantGuardrail: true,
+      }),
+      question,
       tools,
-      // Bounded so a confused loop terminates.
-      stopWhen: stepCountIs(MAX_STEPS),
-      // The current OpenAI models reason by default, and the default effort
-      // buys deliberation this agent does not need: the hard part is choosing
-      // among sixteen tools, not thinking about the answer. Low keeps the model
-      // planning across tool calls while holding the turn short, which matters
-      // because latency is one of the things this repository measures.
-      //
-      // Not `none`, which is documented as being for tasks without
-      // multi-chained tool calls, and measurably behaves that way here: on
-      // `none` the agent stopped chaining and answered "I cannot narrow that"
-      // to a question it answers correctly on `low`.
-      providerOptions: { openai: { reasoningEffort: "low" } },
+      // The governed tools call no model of their own.
+      nested: [],
     });
 
     return {
-      answer: result.text,
+      answer: turn.answer,
       traces,
       usage: {
-        // `usage` aggregates across every step, which is what a per-question
-        // figure has to be: a single tool-using answer costs several model
-        // calls and the tool schemas are re-sent on each one.
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        totalTokens: result.usage.totalTokens,
-        modelCalls: result.steps.length,
+        inputTokens: turn.usage.inputTokens,
+        outputTokens: turn.usage.outputTokens,
+        totalTokens: turn.usage.totalTokens,
+        modelCalls: turn.usage.modelCalls,
       },
-      wallMs: performance.now() - started,
-      model: demo.chatModel,
+      wallMs: turn.wallMs,
+      model: turn.model,
     };
   };
 };

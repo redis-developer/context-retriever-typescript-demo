@@ -34,6 +34,44 @@ export default tseslint.config(
     extends: [tseslint.configs.disableTypeChecked],
   },
   {
+    // The comparison's fairness invariant, enforced rather than documented.
+    //
+    // Both arms of `npm run compare` must differ only in their tools. An arm
+    // that could reach the model provider or the configuration could pick a
+    // different model, a different reasoning effort or a different step
+    // budget, and the comparison would quietly stop being a comparison. The
+    // `Arm` interface has no member for any of them; this is what stops an arm
+    // going around it. Everything an arm legitimately needs is handed to it
+    // through `ArmContext`.
+    files: ["src/compare/arms/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@ai-sdk/openai",
+              message:
+                "An arm may not choose a model. Model calls go through ArmContext.askModel, which uses the model both arms are measured on.",
+            },
+            {
+              name: "../../config/env.ts",
+              message:
+                "An arm may not read configuration. Everything it needs is passed in, so the two arms cannot be configured differently.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["**/agent/turn.ts"],
+              message:
+                "An arm may not run a turn. runTurn owns the model and the step budget for both arms; the runner calls it once per question.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["tests/**/*.ts"],
     rules: {
       "@typescript-eslint/no-non-null-assertion": "off",

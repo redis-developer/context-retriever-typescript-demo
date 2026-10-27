@@ -2,6 +2,7 @@ import { createClient } from "redis";
 import type { RedisJSON } from "@redis/json";
 
 import type { DomainModel, DomainRecord } from "../domain/index.ts";
+import { fingerprintOf } from "../compare/parity.ts";
 
 /**
  * Writes the domain's generated records straight into Redis as JSON.
@@ -38,6 +39,15 @@ export interface SeedReport {
   readonly entity: string;
   readonly written: number;
 }
+
+/**
+ * Where the record fingerprint is written.
+ *
+ * Outside every entity's key prefix, so `--flush` does not remove it and the
+ * surface never indexes it. Both stores carry the same value, which is how the
+ * comparison can refuse to run when they have drifted apart.
+ */
+export const fingerprintKey = (domain: DomainModel): string => `${domain.keyPrefix}_meta:records`;
 
 export const seedDomain = async (
   domain: DomainModel,
@@ -95,7 +105,29 @@ export const seedDomain = async (
       }
       reports.push({ entity: batch.entity, written: batch.records.length });
     }
+
+    // Written last, so a fingerprint present in Redis means the records
+    // finished loading rather than started.
+    await client.set(
+      fingerprintKey(domain),
+      fingerprintOf(domain.generate(options.seed, options.primarySubjectValue)),
+    );
     return reports;
+  } finally {
+    await client.close();
+  }
+};
+
+/** The fingerprint Redis holds, or undefined when nothing has been seeded. */
+export const storedRedisFingerprint = async (
+  domain: DomainModel,
+  redisUrl: string,
+): Promise<string | undefined> => {
+  const client = createClient({ url: redisUrl });
+  client.on("error", () => undefined);
+  await client.connect();
+  try {
+    return (await client.get(fingerprintKey(domain))) ?? undefined;
   } finally {
     await client.close();
   }

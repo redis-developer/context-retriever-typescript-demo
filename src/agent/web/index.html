@@ -18,7 +18,7 @@
         margin: 0; background: var(--bg); color: var(--ink);
         font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       }
-      main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+      main { max-width: 1040px; margin: 0 auto; padding: 32px 20px 64px; }
       h1 { font-size: 19px; margin: 0 0 4px; }
       .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
       .sub code { background: #eef0f4; padding: 1px 5px; border-radius: 3px; }
@@ -45,6 +45,25 @@
       .trace-row { display: flex; gap: 10px; color: var(--muted); }
       .trace-row .nm { color: var(--ink); }
       .trace-row .internal { color: var(--warn); }
+      /* A call that returns no rows and still puts data in the context window.
+         Distinct from retrieval on purpose: reading it as retrieval overstates
+         the thing this repository measures. */
+      .trace-row .insp { color: #6b21a8; }
+      .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+      @media (max-width: 780px) { .cols { grid-template-columns: 1fr; } }
+      .col { min-width: 0; }
+      .col h2 {
+        font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--muted); margin: 0 0 10px; padding-bottom: 6px;
+        border-bottom: 1px solid var(--line);
+      }
+      .verdict { font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 10px; }
+      .verdict .scoped { color: var(--muted); }
+      .verdict .unscoped { color: var(--warn); font-weight: 600; }
+      .verdict .cannot { color: #6b21a8; }
+      .verdict .none { color: var(--muted); }
+      .toggle { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); margin-bottom: 28px; }
       .args { color: var(--muted); overflow-wrap: anywhere; }
       .meter {
         display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px;
@@ -67,14 +86,21 @@
         <button id="go" type="submit">Ask</button>
       </form>
       <div class="examples" id="examples"></div>
+      <label class="toggle" id="compareToggle" hidden>
+        <input type="checkbox" id="compare" />
+        Answer with both, one after the other, and show them side by side
+      </label>
 
       <div id="turns"></div>
 
       <footer>
         Every tool call the agent made is listed with its arguments and duration.
         Internal tools run locally and supply session facts; retrieval tools are
-        discovered from the surface at runtime. Token counts are for this model
-        and include the tool schemas, which are re-sent on every turn.
+        discovered from the surface at runtime; inspection calls return no rows
+        and still put data in the model's context. Token counts are for this
+        model and include the tool schemas, which are re-sent on every turn.
+        Figures here are one turn each, which is not enough to quote:
+        <code>npm run compare -- --repeat 3</code> reports a spread.
       </footer>
     </main>
 
@@ -123,6 +149,10 @@
         `(${escape(session.customer.name)}) · model <code>${escape(session.model)}</code> · ` +
         `domain <code>${escape(session.domain)}</code>`;
 
+      // Hidden rather than disabled when Postgres is unconfigured. A control
+      // that is visible and fails is worse than one that is absent.
+      if (session.comparison) $("compareToggle").hidden = false;
+
       $("examples").innerHTML = EXAMPLES.map(
         (text, i) => `<button type="button" data-i="${i}">${escape(text)}</button>`,
       ).join("");
@@ -133,19 +163,106 @@
         $("form").requestSubmit();
       });
 
+      // Three kinds, not two. Reading an inspection call as retrieval would
+      // overstate retrieval, which is the figure this interface exists to show.
+      // The fallback is deliberate: an unknown kind from a newer server should
+      // render rather than vanish.
+      const TRACE_CLASS = { internal: "internal", inspection: "insp", retrieval: "nm" };
+
       const renderTrace = traces =>
         traces
           .map(t => {
-            const kind = t.kind === "internal" ? "internal" : "nm";
+            const kind = TRACE_CLASS[t.kind] ?? "nm";
             const rows = t.rows === undefined ? "" : ` → ${t.rows} row(s)`;
             return (
               `<div class="trace-row"><span class="${kind}">${escape(t.name)}</span>` +
               `<span>${t.ms.toFixed(1)} ms${rows}${t.ok ? "" : " (refused)"}</span></div>` +
-              `<div class="args">${escape(JSON.stringify(t.args))}</div>` +
+              `<div class="args">${escape(t.sql ?? JSON.stringify(t.args))}</div>` +
               (t.error === undefined ? "" : `<div class="args">${escape(t.error)}</div>`)
             );
           })
           .join("");
+
+      const meter = (u, wallMs, traces) =>
+        `<div class="meter">` +
+        `<span>tools <b>${traces.length}</b></span>` +
+        `<span>model calls <b>${u.modelCalls}</b></span>` +
+        `<span>tokens in <b>${u.inputTokens ?? "?"}</b></span>` +
+        `<span>out <b>${u.outputTokens ?? "?"}</b></span>` +
+        `<span>wall <b>${wallMs.toFixed(0)} ms</b></span>` +
+        `</div>`;
+
+      // What each arm's traces said about scoping.
+      //
+      // The two claims are not the same strength and the wording keeps them
+      // apart. An arm that wrote no statements has nothing to judge, because no
+      // tool argument can express another customer; an arm that wrote SQL is
+      // being read on what a model happened to write on the day. Printing two
+      // clean results as though they were the same result is the one thing this
+      // panel must not do.
+      const renderVerdicts = verdicts => {
+        if (verdicts.length === 0) {
+          return (
+            `<div class="verdict"><span class="none">no statement to judge: no tool argument ` +
+            `expresses another customer</span></div>`
+          );
+        }
+        return (
+          `<div class="verdict">` +
+          verdicts
+            .map(v => {
+              const cls =
+                v.scoping === "unscoped" ? "unscoped" : v.scoping === "scoped" ? "scoped" : "cannot";
+              const why = v.reasons.length === 0 ? "" : ` — ${escape(v.reasons.join("; "))}`;
+              return `<div><span class="${cls}">${escape(v.scoping)}</span>${why}</div>`;
+            })
+            .join("") +
+          `</div>`
+        );
+      };
+
+      const compareBoth = async question => {
+        const turn = document.createElement("div");
+        turn.className = "turn";
+        turn.innerHTML =
+          `<div class="q">${escape(question)}</div>` +
+          `<div class="pending">asking both, one after the other…</div>`;
+        $("turns").prepend(turn);
+        $("go").disabled = true;
+
+        try {
+          const res = await fetch("/api/compare", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ question }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error ?? "request failed");
+
+          turn.innerHTML =
+            `<div class="q">${escape(question)}</div>` +
+            `<div class="cols">` +
+            data.arms
+              .map(
+                arm =>
+                  `<div class="col"><h2>${escape(arm.arm)}</h2>` +
+                  `<div class="a">${escape(arm.answer)}</div>` +
+                  `<div class="trace">${renderTrace(arm.traces)}</div>` +
+                  renderVerdicts(arm.verdicts) +
+                  meter(arm.usage, arm.wallMs, arm.traces) +
+                  `<div class="meter"><span>tool schemas <b>${arm.schemaTokens}</b> tok est. per call</span></div>` +
+                  `</div>`,
+              )
+              .join("") +
+            `</div>`;
+        } catch (error) {
+          turn.innerHTML =
+            `<div class="q">${escape(question)}</div>` +
+            `<div class="err">${escape(error.message)}</div>`;
+        } finally {
+          $("go").disabled = false;
+        }
+      };
 
       const ask = async question => {
         const turn = document.createElement("div");
@@ -163,19 +280,11 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data.error ?? "request failed");
 
-          const u = data.usage;
           turn.innerHTML =
             `<div class="q">${escape(question)}</div>` +
             `<div class="a">${escape(data.answer)}</div>` +
             `<div class="trace">${renderTrace(data.traces)}</div>` +
-            `<div class="meter">` +
-            `<span>tools <b>${data.traces.length}</b></span>` +
-            `<span>model calls <b>${u.modelCalls}</b></span>` +
-            `<span>tokens in <b>${u.inputTokens ?? "?"}</b></span>` +
-            `<span>out <b>${u.outputTokens ?? "?"}</b></span>` +
-            `<span>total <b>${u.totalTokens ?? "?"}</b></span>` +
-            `<span>wall <b>${data.wallMs.toFixed(0)} ms</b></span>` +
-            `</div>`;
+            meter(data.usage, data.wallMs, data.traces);
         } catch (error) {
           turn.innerHTML =
             `<div class="q">${escape(question)}</div>` +
@@ -190,7 +299,7 @@
         const question = $("q").value.trim();
         if (question === "") return;
         $("q").value = "";
-        void ask(question);
+        void ($("compare").checked ? compareBoth(question) : ask(question));
       });
     </script>
   </body>
